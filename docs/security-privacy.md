@@ -1,5 +1,9 @@
 # Безопасность и приватность
 
+## Public release page
+
+Vercel получает только статические файлы из `website/`. Корневой `vercel.json` выбирает framework preset `Other`, пропускает установку зависимостей, выполняет только no-op build и задаёт `outputDirectory=website`; поэтому Git Integration не публикует Next.js API routes, SQLite или local vault. Оба Vercel entry point задают CSP без script/form execution, `frame-ancestors 'none'`, `Permissions-Policy`, `Referrer-Policy: no-referrer`, `nosniff` и `DENY` framing.
+
 Playlist-Transfer рассчитан на одного локального пользователя и literal loopback listener. Это не multi-user web service и не hosted security profile.
 
 ## Trust boundaries
