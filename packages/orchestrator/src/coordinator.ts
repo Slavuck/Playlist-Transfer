@@ -663,6 +663,7 @@ export class TransferCoordinator {
   create(input: CreateTransferInput): TransferRecord {
     const sourceProvider = asProvider(input.sourceProvider);
     const destinationProvider = asProvider(input.destinationProvider);
+    const soundcloudManualOnly = sourceProvider === "soundcloud" || destinationProvider === "soundcloud";
     if (sourceProvider === destinationProvider) throw new Error("CROSS_SERVICE_DIRECTION_REQUIRED");
     if (!["SEPARATE_COPY", "MERGE_NEW", "APPEND_EXISTING"].includes(input.mode)) throw new Error("UNKNOWN_TRANSFER_MODE");
     const ids = [...new Set(input.selectedPlaylistIds.map((id) => requiredText(id, "SOURCE_PLAYLIST_ID_REQUIRED")))];
@@ -703,12 +704,16 @@ export class TransferCoordinator {
         existingItemCount: rawDestination.existingItemCount ?? 0,
         destinationSnapshotAtMs: input.mode === "APPEND_EXISTING" ? now : undefined,
         bindings: {},
-        forceGuided: false,
+        // SC-BASE-LEGAL remains unknown, so a SoundCloud direction may use
+        // only explicit user-operated cards. The application never turns an
+        // optional YouTube connection into automatic cross-service writes for
+        // this path.
+        forceGuided: soundcloudManualOnly,
       }),
       limitationCodes: [
         ...providerLimitations[sourceProvider],
         ...providerLimitations[destinationProvider],
-        ...(sourceProvider === "soundcloud" || destinationProvider === "soundcloud" ? ["SC-BASE-LEGAL_EXTERNAL_UNKNOWN"] : []),
+        ...(soundcloudManualOnly ? ["SC-BASE-LEGAL_EXTERNAL_UNKNOWN", "SC-BASE-LEGAL_MANUAL_ONLY"] : []),
         ...(input.mode === "APPEND_EXISTING" && Number(rawDestination.existingItemCount ?? 0) > (rawDestination.existingItemIds?.length ?? 0)
           ? ["DESTINATION_CONTENT_IDS_PARTIAL_USER_ATTESTED"]
           : []),
@@ -785,14 +790,13 @@ export class TransferCoordinator {
     return this.locked(transferId, async () => {
       let transfer = this.database.getTransfer(transferId);
       if (!transfer) throw new Error("TRANSFER_NOT_FOUND");
-      if (transfer.sourceProvider === "soundcloud" || transfer.destinationProvider === "soundcloud") {
-        transfer = this.saveTransfer(withLimitations(transfer, "SC-BASE-LEGAL_BLOCKED_EXTERNAL"));
-        this.database.audit("TRANSFER_BLOCKED_EXTERNAL_POLICY_GATE", transferId, {
+      if ((transfer.sourceProvider === "soundcloud" || transfer.destinationProvider === "soundcloud") && transfer.state === "DRAFT") {
+        this.database.audit("TRANSFER_MANUAL_ONLY_POLICY_GATE", transferId, {
           gate: "SC-BASE-LEGAL",
           status: "UNKNOWN",
-          providerMutationPerformed: false,
+          applicationAutomationEnabled: false,
+          userOperatedGuidedPathEnabled: true,
         });
-        return this.view(transferId);
       }
       if (!["DRAFT", "PREFLIGHT", "SNAPSHOTTING", "MATCHING"].includes(transfer.state)) return this.view(transferId);
       try {
@@ -1341,9 +1345,6 @@ export class TransferCoordinator {
     return this.locked(transferId, async () => {
       const transfer = this.database.getTransfer(transferId);
       if (!transfer) throw new Error("TRANSFER_NOT_FOUND");
-      if (transfer.sourceProvider === "soundcloud" || transfer.destinationProvider === "soundcloud") {
-        throw new Error("SC-BASE-LEGAL_BLOCKED_EXTERNAL");
-      }
       if (transfer.writePlan) throw new Error("WRITE_PLAN_ALREADY_IMMUTABLE");
       if (!input.ownershipAttested || !input.editControlAttested) throw new Error("DESTINATION_OWNER_AND_EDIT_ATTESTATION_REQUIRED");
       if (transfer.mode === "APPEND_EXISTING") throw new Error("APPEND_EXISTING_DESTINATION_MUST_BE_BOUND_AT_CREATION");
@@ -1794,10 +1795,6 @@ export class TransferCoordinator {
       let transfer = this.database.getTransfer(transferId);
       if (!transfer) throw new Error("TRANSFER_NOT_FOUND");
       if (transfer.state === "DRAFT") throw new Error("START_REQUIRED");
-      if (transfer.sourceProvider === "soundcloud" || transfer.destinationProvider === "soundcloud") {
-        this.saveTransfer(withLimitations(transfer, "SC-BASE-LEGAL_BLOCKED_EXTERNAL"));
-        return this.view(transferId);
-      }
       if (transfer.state === "NEEDS_REVIEW" && !transfer.writePlan) {
         const items = this.items(transferId);
         if (items.some((item) => item.state === "NEEDS_REVIEW")) return this.view(transferId);
@@ -2056,12 +2053,12 @@ export class TransferCoordinator {
     const externalGate = transfer.sourceProvider === "soundcloud" || transfer.destinationProvider === "soundcloud"
       ? {
           code: "SC-BASE-LEGAL",
-          status: "BLOCKED_EXTERNAL" as const,
-          reason: "No positive documented permission for the distributed SoundCloud guided transfer baseline is available.",
+          status: "MANUAL_ONLY" as const,
+          reason: "No positive documented permission for SoundCloud automation is available; only explicit user-operated official-page actions are emitted.",
           providerMutationPerformed: false,
         }
       : undefined;
-    const bindingNeeds = blueprint && !externalGate
+    const bindingNeeds = blueprint
       ? blueprint.destinations
           .filter((entry) => !entry.existingProviderPlaylistId && !destination.bindings[entry.destinationPlanKey])
           .map((entry) => ({
@@ -2080,7 +2077,7 @@ export class TransferCoordinator {
     const awaiting = items.find((item) => item.state === "AWAITING_USER_RECONCILIATION");
     const pendingBase = awaiting ? this.pendingGuidedAction(transferId, awaiting.id) : undefined;
     const pendingJournal = awaiting ? this.database.listJournal(transferId).find((entry) => entry.stepKey === `guided:${awaiting.id}` && entry.status === "AWAITING_USER") : undefined;
-    const pendingAction = externalGate ? undefined : pendingBase ? {
+    const pendingAction = pendingBase ? {
       ...pendingBase,
       actionId: pendingBase.id,
       transferItemId: awaiting!.id,
@@ -2127,7 +2124,7 @@ export class TransferCoordinator {
         domRead: false,
         uiAutomation: false,
         fullSideBySideComparison: false,
-        soundcloudTransfer: externalGate ? "blocked-external" : "not-applicable",
+        soundcloudTransfer: externalGate ? "guided-manual-only" : "not-applicable",
       },
       limitations: transfer.limitationCodes,
     };

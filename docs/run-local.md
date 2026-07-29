@@ -94,7 +94,7 @@ Baseline не использует Spotify Web API, Web Playback SDK, DOM readin
 
 Технический import принимает точный `https://soundcloud.com/...` permalink; oEmbed по умолчанию выключен и требует отдельного точного acknowledgement-флага. Ни URL, ни oEmbed не дают стабильный URN, duration, состав приватного playlist или право записи. DOM, cookies, localStorage, network responses и внутренние credentials не читаются.
 
-`SC-BASE-LEGAL=UNKNOWN`: текущая сборка останавливает любой transfer с SoundCloud как `BLOCKED_EXTERNAL` до provider mutation. Этот gate нельзя закрыть локальным тестом, пользовательским согласием или `PLAYLIST_TRANSFER_ENABLE_PROVIDER_OEMBED`. Положительный письменный ответ потребует обновления policy registry и новой release-сборки. SoundCloud self-service API credentials требуют Artist Pro и потому не входят в baseline. Техническую библиотеку можно подготовить одним bulk-файлом, но это не закрывает внешний gate.
+`SC-BASE-LEGAL=UNKNOWN`: текущая сборка запрещает SoundCloud automation, но не блокирует обязательный guided fallback. Transfer принудительно работает как `MANUAL_ONLY`: приложение формирует по одной карточке с точной официальной страницей, пользователь сам создаёт playlist/выполняет Add и отдельно подтверждает видимый результат. Статус такого результата — только `USER_CONFIRMED_MANUAL`. Gate нельзя закрыть локальным тестом, пользовательским согласием или `PLAYLIST_TRANSFER_ENABLE_PROVIDER_OEMBED`; Artist Pro/API не входят в baseline. Техническую библиотеку можно подготовить одним bulk-файлом, но это не превращает manual path в approved automation.
 
 ### YouTube/YouTube Music — guided baseline
 
@@ -142,7 +142,7 @@ Edge: повторите те же действия в `edge://extensions`.
 Проверка ZIP в PowerShell:
 
 ```powershell
-Get-FileHash apps/extension/dist/playlist-transfer-extension-1.0.0-chromium-guided.zip -Algorithm SHA256
+Get-FileHash apps/extension/dist/playlist-transfer-extension-1.0.1-chromium-guided.zip -Algorithm SHA256
 Get-Content apps/extension/dist/SHA256SUMS
 ```
 
@@ -163,6 +163,7 @@ ZIP является детерминированным review/archive artifact.
 ## 8. Данные, backup и удаление
 
 - SQLite: `.data/playlist-transfer.sqlite` плюс WAL/SHM рядом с ним.
+- Legacy migration: если рядом найден прежний branded SQLite с пользовательскими данными, а каноническая БД отсутствует или пуста, приложение сначала checkpoint-ит и копирует legacy state в `playlist-transfer.sqlite`. Непустая каноническая БД никогда не перезаписывается; пустая каноническая БД сохраняется как `.empty-before-legacy-migration.*.bak`, а исходный legacy-файл остаётся recovery copy.
 - Provider secrets: AES-256-GCM ciphertext внутри connection record.
 - Playlist metadata, journal, decisions и receipts: локальная SQLite; это не обязательно secret ciphertext.
 - Extension pairing/handoff/navigation state: только `chrome.storage.session`, очищается browser-ом при restart/reload/disable/update.
@@ -192,6 +193,6 @@ Snapshot rows содержат expiry timestamp (default 24 часа), одна�
 | `YOUTUBE_REVOKE_FAILED_MANUAL_REVOCATION_REQUIRED` | Локальное удаление остановлено. Отзовите grant в Google security settings и затем явно подтвердите manual revocation. |
 | oEmbed отключён/недоступен | Это ожидаемый default. Entity остаётся user-selected/unverified; URL syntax не превращается в provider verification. Для разрешённого use case endpoint открывает только точное `PLAYLIST_TRANSFER_ENABLE_PROVIDER_OEMBED=I_ACCEPT_PROVIDER_POLICIES`. |
 | Расширение не соединяется | Убедитесь, что app открыт на exact bridge origin, extension перезагружен после build, invite не старше 2 минут. |
-| SoundCloud workflow заблокирован | Это ожидаемый fail-closed результат, пока `SC-BASE-LEGAL` не положителен. |
+| SoundCloud показывает `MANUAL_ONLY` | Это ожидаемый fail-closed режим автоматизации: выполняйте выданные official-page действия вручную и подтверждайте результат; приложение не использует API/DOM mutation. |
 
 Ручная проверка реальных provider-аккаунтов ведётся отдельно по [`manual-acceptance.md`](manual-acceptance.md). Наличие зелёных unit tests не означает завершённый real-provider acceptance.

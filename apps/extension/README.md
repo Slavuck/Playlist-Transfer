@@ -52,7 +52,7 @@ discarded, or on account deletion. This app-side draft never accepts a secret UR
 
 Private SoundCloud tokens are redacted from UI, encrypted in session storage, and removed before
 the one-time claim response is returned. They are not persisted into the app import draft, and
-SoundCloud transfer directions remain `BLOCKED_EXTERNAL` while `SC-BASE-LEGAL` is unresolved.
+SoundCloud transfer directions remain `MANUAL_ONLY` while `SC-BASE-LEGAL` is unresolved: the extension may stage a public official URL after explicit user action, but neither the extension nor the app performs API/DOM mutation or auto-click.
 The extension does not label a URL capture as
 `VERIFIED_PROVIDER` or `USER_CONFIRMED_MANUAL`; those statuses belong to provider API read-back
 or an explicit user receipt in the local application.

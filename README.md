@@ -17,7 +17,7 @@ Distributable baseline запускается fail-closed: YouTube Data API и �
 
 ## Важное ограничение SoundCloud
 
-`SC-BASE-LEGAL` остаётся внешним юридическим gate со статусом **UNKNOWN**, поэтому текущий runtime fail-closed присваивает любому направлению с SoundCloud статус **`BLOCKED_EXTERNAL`** до первой provider mutation. Импорт публичного permalink и локальная attestation вкладки могут использоваться как техническая подготовка, но не запускают перенос и не закрывают gate. Даже включённый oEmbed не является письменным разрешением SoundCloud на cross-service transfer. Для изменения этого поведения нужны применимое письменное решение provider-а, обновление policy registry и отдельная release-проверка; scraping не является fallback.
+`SC-BASE-LEGAL` остаётся внешним gate со статусом **UNKNOWN**, поэтому автоматизация SoundCloud fail-closed выключена. Направления с SoundCloud при этом не становятся тупиком: приложение выдаёт только пошаговые `USER_OPERATED` карточки на официальных страницах, никогда не читает DOM и не нажимает кнопки, а завершение фиксирует отдельно как `USER_CONFIRMED_MANUAL`. Это обязательный guided fallback из раздела 22, а не заявление о provider approval. Импорт публичного permalink и локальная attestation вкладки не закрывают gate; даже включённый oEmbed не является письменным разрешением на автоматизацию или competitive playback.
 
 DOM/UI automation Spotify и SoundCloud выключена. Для YouTube DOM/auto-click fallback отсутствует. Strict side-by-side playback конкурирующих сервисов также не заявлен: production fallback — явно помеченный sequential/link-out review.
 
@@ -86,6 +86,8 @@ npm run check            полный release-check pipeline
 ## Данные и приватность
 
 По умолчанию данные находятся в `.data/playlist-transfer.sqlite` и не покидают компьютер, кроме явных запросов к официальным provider endpoints. Provider credentials шифруются AES-256-GCM ключом, полученным из локального пароля через scrypt; открытый ключ живёт только в памяти процесса. Никакой телеметрии или закрытого облачного компонента нет.
+
+Если вы уже запускали сборку до переименования проекта, при следующем полном перезапуске приложение автоматически переносит существующий локальный профиль и подключения в канонический файл `playlist-transfer.sqlite`. Миграция выполняется только когда новая БД отсутствует или действительно пуста, не перезаписывает непустую БД и сохраняет исходный legacy-файл как recovery copy.
 
 Локальные страницы раскрытия доступны по [`/privacy.html`](http://127.0.0.1:3210/privacy.html) и [`/terms.html`](http://127.0.0.1:3210/terms.html). Они описывают именно self-operated local build и не означают, что provider compliance audit или ручная приёмка уже выполнены.
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { randomUUID } from "node:crypto";
@@ -61,6 +61,82 @@ function asNumber(value: unknown): number {
   return typeof value === "bigint" ? Number(value) : Number(value ?? 0);
 }
 
+const userStateTables = [
+  "local_profile",
+  "service_connections",
+  "playlist_snapshots",
+  "transfers",
+  "transfer_items",
+  "write_receipts",
+] as const;
+
+function databaseHasUserState(filename: string): boolean {
+  if (!existsSync(filename)) return false;
+  let database: DatabaseSync | undefined;
+  try {
+    database = new DatabaseSync(filename, { readOnly: true });
+    const tables = new Set(
+      database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String(row.name)),
+    );
+    for (const table of userStateTables) {
+      if (!tables.has(table)) continue;
+      const count = database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get();
+      if (asNumber(count?.count) > 0) return true;
+    }
+    return false;
+  } catch {
+    // A database we cannot inspect is never safe to overwrite automatically.
+    return true;
+  } finally {
+    database?.close();
+  }
+}
+
+function moveDatabaseAside(filename: string, backupBase: string): void {
+  for (const [source, target] of [
+    [filename, backupBase],
+    [`${filename}-wal`, `${backupBase}.wal`],
+    [`${filename}-shm`, `${backupBase}.shm`],
+  ] as const) {
+    if (existsSync(source)) renameSync(source, target);
+  }
+}
+
+function restoreMovedDatabase(filename: string, backupBase: string): void {
+  for (const [source, target] of [
+    [backupBase, filename],
+    [`${backupBase}.wal`, `${filename}-wal`],
+    [`${backupBase}.shm`, `${filename}-shm`],
+  ] as const) {
+    if (existsSync(source)) renameSync(source, target);
+  }
+}
+
+function migrateLegacyDatabase(currentFilename: string, previousFilename: string): { migrated: boolean; emptyBackup?: string } {
+  if (!existsSync(previousFilename) || !databaseHasUserState(previousFilename)) return { migrated: false };
+  if (existsSync(currentFilename) && databaseHasUserState(currentFilename)) return { migrated: false };
+
+  const emptyBackup = existsSync(currentFilename)
+    ? `${currentFilename}.empty-before-legacy-migration.${randomUUID()}.bak`
+    : undefined;
+  try {
+    const legacy = new DatabaseSync(previousFilename);
+    try {
+      legacy.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    } finally {
+      legacy.close();
+    }
+    if (emptyBackup) moveDatabaseAside(currentFilename, emptyBackup);
+    copyFileSync(previousFilename, currentFilename);
+    if (!databaseHasUserState(currentFilename)) throw new Error("LEGACY_DATABASE_COPY_VALIDATION_FAILED");
+    return { migrated: true, emptyBackup };
+  } catch (error) {
+    if (existsSync(currentFilename)) unlinkSync(currentFilename);
+    if (emptyBackup) restoreMovedDatabase(currentFilename, emptyBackup);
+    throw new Error("LEGACY_DATABASE_MIGRATION_FAILED", { cause: error });
+  }
+}
+
 export class LocalDatabase {
   readonly directory: string;
   readonly filename: string;
@@ -71,12 +147,20 @@ export class LocalDatabase {
     mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     const currentFilename = path.join(this.directory, "playlist-transfer.sqlite");
     const previousFilename = path.join(this.directory, `${"app"}${"transfer"}.sqlite`);
-    this.filename = existsSync(currentFilename) || !existsSync(previousFilename) ? currentFilename : previousFilename;
+    const legacyMigration = migrateLegacyDatabase(currentFilename, previousFilename);
+    this.filename = currentFilename;
     this.sqlite = new DatabaseSync(this.filename);
     this.sqlite.exec("PRAGMA foreign_keys = ON");
     this.sqlite.exec("PRAGMA journal_mode = WAL");
     this.sqlite.exec("PRAGMA synchronous = FULL");
     this.migrate();
+    if (legacyMigration.migrated) {
+      this.audit("LEGACY_LOCAL_DATABASE_MIGRATED", undefined, {
+        canonicalFilename: path.basename(currentFilename),
+        encryptedUserStatePreserved: true,
+        emptyCanonicalBackupCreated: Boolean(legacyMigration.emptyBackup),
+      });
+    }
   }
 
   private migrate() {

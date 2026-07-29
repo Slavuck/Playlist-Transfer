@@ -135,7 +135,7 @@ export function ConnectionsPage() {
                   <p className="notice warning small">{ru ? "Это не OAuth и не синхронизация: приложение не увидит плейлисты этого аккаунта автоматически." : "This is not OAuth or sync: the app will not see this account's playlists automatically."}</p><button className="button" disabled={busy === provider.id} type="submit">{ru ? "Сохранить identity для guided fallback" : "Save identity for guided fallback"}</button>
                 </form>
               )}
-              {provider.id === "soundcloud" && <p className="notice warning small">SC-BASE-LEGAL: {ru ? "внешняя позиция не подтверждена. Service-tab capture только подставляет публичный URL аккаунта; transfer-направления остаются BLOCKED_EXTERNAL." : "external position unconfirmed. Service-tab capture only prefills a public account URL; transfer directions remain BLOCKED_EXTERNAL."}</p>}
+              {provider.id === "soundcloud" && <p className="notice warning small">SC-BASE-LEGAL: {ru ? "разрешение на автоматизацию не подтверждено. Service-tab capture только подставляет публичный URL аккаунта; перенос остаётся доступен как пошаговый USER-OPERATED режим без DOM/API-записи приложением." : "automation permission is unconfirmed. Service-tab capture only prefills a public account URL; transfer remains available as a step-by-step USER-OPERATED flow with no app-driven DOM/API writes."}</p>}
             </article>
           );
         })}

@@ -38,28 +38,22 @@ for (const direction of PROVIDER_DIRECTIONS) {
 
             let view = await coordinator.start(transfer.id) as CoordinatorView;
             if (includesSoundcloud(direction)) {
-              assert.equal(view.transfer.state, "DRAFT", "external policy gate must run before orchestration or mutation");
-              assert.ok(view.limitations.includes("SC-BASE-LEGAL_BLOCKED_EXTERNAL"));
-              assert.equal(view.items.length, 0);
-              assert.equal(view.journal.length, 0);
-              assert.equal(harness.database.listReceipts(transfer.id).length, 0);
-              assert.equal(harness.counters.connectorFactoryCalls, 0);
-              assert.ok(
-                harness.counters.youtubeClientCalls <= 1,
-                "the rendered view may perform one configuration probe, but no API client method may run",
-              );
+              assert.ok(view.limitations.includes("SC-BASE-LEGAL_EXTERNAL_UNKNOWN"));
+              assert.ok(view.limitations.includes("SC-BASE-LEGAL_MANUAL_ONLY"));
+              assert.equal(view.externalGate?.status, "MANUAL_ONLY");
+              assert.equal(view.capabilities.soundcloudTransfer, "guided-manual-only");
 
               const audits = harness.database.all<JsonObject>(
                 "SELECT event_type, detail_json FROM audit_events WHERE subject_id = ? ORDER BY id",
                 transfer.id,
               );
-              const gateAudit = audits.find((entry) => entry.event_type === "TRANSFER_BLOCKED_EXTERNAL_POLICY_GATE");
-              assert.ok(gateAudit, "SC-BASE-LEGAL decision must be auditable");
+              const gateAudit = audits.find((entry) => entry.event_type === "TRANSFER_MANUAL_ONLY_POLICY_GATE");
+              assert.ok(gateAudit, "SC-BASE-LEGAL manual-only decision must be auditable");
               const detail = JSON.parse(String(gateAudit.detail_json)) as JsonObject;
               assert.equal(detail.gate, "SC-BASE-LEGAL");
               assert.equal(detail.status, "UNKNOWN");
-              assert.equal(detail.providerMutationPerformed, false);
-              return;
+              assert.equal(detail.applicationAutomationEnabled, false);
+              assert.equal(detail.userOperatedGuidedPathEnabled, true);
             }
 
             if (!reviewUncertain) {
@@ -92,6 +86,9 @@ for (const direction of PROVIDER_DIRECTIONS) {
               itemId,
               target: harness.targetTrackUrl,
             }) as CoordinatorView;
+            if (includesSoundcloud(direction)) {
+              assert.equal(view.items[0]!.selection?.writeStrategy, "GUIDED_USER_ACTION");
+            }
 
             if (mode !== "APPEND_EXISTING") {
               assert.equal(view.transfer.state, "NEEDS_REVIEW");
@@ -115,6 +112,9 @@ for (const direction of PROVIDER_DIRECTIONS) {
             assert.equal(view.items[0]!.state, "AWAITING_USER_RECONCILIATION");
             assert.equal(view.pendingAction?.kind, "ADD_ITEM");
             assert.equal(view.pendingAction?.automation, "USER_OPERATED");
+            if (includesSoundcloud(direction)) {
+              assert.equal(view.capabilities.soundcloudTransfer, "guided-manual-only");
+            }
             assert.equal(view.pendingAction?.requiresFreshDestinationConfirmation, true);
             assert.equal(view.pendingAction?.expectedDestinationItemCount, 0);
             assert.equal(
