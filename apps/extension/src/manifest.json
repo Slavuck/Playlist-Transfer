@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Playlist-Transfer Guided Connector",
+  "short_name": "Playlist-Transfer",
+  "version": "1.0.0",
+  "description": "Captures user-selected provider URLs for the local Playlist-Transfer app.",
+  "minimum_chrome_version": "102",
+  "incognito": "not_allowed",
+  "action": {
+    "default_title": "Playlist-Transfer — guided connector",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://127.0.0.1:3210/extension-bridge"
+    ],
+    "accepts_tls_channel_id": false
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  }
+}
+

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Playlist-Transfer · Бесплатный local-first перенос плейлистов</title>
+  <meta name="description" content="Playlist-Transfer переносит плейлисты между Spotify, YouTube/YouTube Music и SoundCloud без обязательного облака, платных API и передачи паролей.">
+  <meta property="og:title" content="Playlist-Transfer">
+  <meta property="og:description" content="Local-first перенос плейлистов. Бесплатно, прозрачно и с честными статусами проверки.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://playlist-transfer.vercel.app/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%2311110f%22/><text x=%2232%22 y=%2240%22 text-anchor=%22middle%22 font-family=%22Arial%22 font-weight=%22700%22 font-size=%2224%22 fill=%22%23d4aa55%22>PT</text></svg>">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Playlist-Transfer — начало"><span>PT</span> Playlist-Transfer</a>
+    <nav aria-label="Навигация"><a href="#workflow">Как работает</a><a href="#providers">Сервисы</a><a href="https://github.com/Slavuck/Playlist-Transfer">GitHub</a></nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <p class="eyebrow">LOCAL-FIRST · ZERO-BUDGET BASELINE</p>
+      <h1>Тысяча треков.<br>Несколько действий.</h1>
+      <p class="lede">Переносите плейлисты между Spotify, YouTube/YouTube Music и SoundCloud без ввода каждого трека, без передачи provider-паролей и без обязательного облачного аккаунта.</p>
+      <div class="actions"><a class="button primary" href="https://github.com/Slavuck/Playlist-Transfer/releases/latest">Скачать первый релиз</a><a class="button" href="https://github.com/Slavuck/Playlist-Transfer">Исходный код</a></div>
+      <ul class="trust" aria-label="Свойства"><li>Данные на вашем компьютере</li><li>JSON / CSV / ZIP</li><li>SAFE · RISKY · REVIEW</li></ul>
+    </section>
+
+    <section class="workflow" id="workflow">
+      <div class="section-copy"><p class="eyebrow">НОРМАЛЬНЫЙ СЦЕНАРИЙ</p><h2>Аккаунт или официальный экспорт — не ручная таблица.</h2><p>Прямой account-доступ используется только там, где официальный бесплатный API действительно это позволяет. В остальных случаях Playlist-Transfer открывает официальный export-портал и локально читает скачанный архив.</p></div>
+      <ol class="steps">
+        <li><span>01</span><div><strong>Получите библиотеку</strong><p>Войдите через Google либо скачайте официальный ZIP Spotify/Google Takeout.</p></div></li>
+        <li><span>02</span><div><strong>Выберите плейлисты</strong><p>Один архив может содержать сотни списков; порядок и повторы сохраняются.</p></div></li>
+        <li><span>03</span><div><strong>Запустите перенос</strong><p>Выберите destination и точность. Непроверенные действия никогда не становятся «успехом» автоматически.</p></div></li>
+      </ol>
+    </section>
+
+    <section id="providers">
+      <div class="section-heading"><p class="eyebrow">ЧЕСТНЫЕ ВОЗМОЖНОСТИ</p><h2>Что доступно в бесплатной версии</h2></div>
+      <div class="provider-grid">
+        <article><div class="provider-head"><span class="provider yt">YT</span><span class="status verified">DIRECT API</span></div><h3>YouTube / Music</h3><p>Owned-плейлисты через официальный Google OAuth. Альтернатива — ZIP Google Takeout с playlist CSV.</p></article>
+        <article><div class="provider-head"><span class="provider sp">SP</span><span class="status">OFFICIAL EXPORT</span></div><h3>Spotify</h3><p>Официальный Account Data ZIP с Playlist JSON читается целиком. Premium и developer app не обязательны.</p></article>
+        <article><div class="provider-head"><span class="provider sc">SC</span><span class="status blocked">EXTERNAL GATE</span></div><h3>SoundCloud</h3><p>Неподтверждённые API/export-возможности не маскируются. Runtime останавливается до mutation при внешнем gate.</p></article>
+      </div>
+    </section>
+
+    <section class="local-callout">
+      <div><p class="eyebrow">НЕ SaaS</p><h2>Публичен сайт. Ваши данные — нет.</h2></div>
+      <p>Vercel-страница содержит описание и ссылки на релиз. Рабочее приложение запускается на <code>127.0.0.1</code>, использует локальную SQLite и зашифрованный vault. Плейлисты и credentials не отправляются на этот сайт.</p>
+    </section>
+  </main>
+
+  <footer><span>Playlist-Transfer · v1.0.0</span><span>Local-first personal tool</span></footer>
+</body>
+</html>

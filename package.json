@@ -1,0 +1,43 @@
+{
+  "name": "playlist-transfer",
+  "version": "1.0.0",
+  "description": "Free local-first guided playlist transfer coordinator",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "next dev --webpack --hostname 127.0.0.1 --port 3210",
+    "build": "next build --webpack",
+    "start": "next start --hostname 127.0.0.1 --port 3210",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ignore-pattern .next --ignore-pattern coverage --ignore-pattern apps/extension/dist",
+    "test": "tsx --test tests/**/*.test.ts",
+    "test:extension": "node --test apps/extension/tests/*.test.mjs",
+    "extension:build": "node scripts/build-extension.mjs",
+    "brand:check": "node scripts/check-brand.mjs",
+    "worker": "tsx apps/worker/src/index.ts",
+    "check": "npm run lint && npm run typecheck && npm test && npm run test:extension && npm run extension:build && npm run brand:check && npm run build"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "next": "16.2.12",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "zod": "4.4.3"
+  },
+  "overrides": {
+    "postcss": "8.5.25",
+    "sharp": "0.35.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.12",
+    "tsx": "4.22.1",
+    "typescript": "5.9.3"
+  },
+  "type": "module"
+}

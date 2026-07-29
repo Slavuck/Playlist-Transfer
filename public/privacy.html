@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Privacy · Playlist-Transfer</title>
+  <style>body{max-width:780px;margin:40px auto;padding:0 22px;font:16px/1.6 system-ui;color:#292520;background:#f4f0e8}a{color:#694fd6}section{background:#fffaf0;border-radius:22px;padding:22px;margin:18px 0}code{background:#e8e2d8;padding:2px 5px;border-radius:5px}</style>
+</head>
+<body>
+  <p><a href="/">← Playlist-Transfer</a></p>
+  <h1>Local privacy policy / Локальная политика конфиденциальности</h1>
+  <p>Version 2026-07-29. This policy describes the free personal, local-first build. It has no hosted service, advertising, analytics, telemetry, or developer-operated database.</p>
+  <section><h2>Data and purpose</h2><p>The app stores a local profile, encrypted provider credentials when optional OAuth is enabled, playlist snapshots, exact provider IDs, matching/review decisions, write receipts, and a retry journal. It uses them only to import playlists, let the operator choose exact targets, perform explicitly approved playlist changes, resume safely, and produce an honest local report. Provider passwords are never requested.</p></section>
+  <section><h2>Storage, sharing, and retention</h2><p>Data stays in SQLite and the encrypted vault on this computer. Requests go only to the provider endpoint selected by the operator. No data is sold or shared with another backend. Raw playlist/track detail is retained for the active transfer and a default support window of 24 hours; YouTube API metadata is deleted or refreshed within 30 days. Summary counts may remain in local history until the operator clears it.</p></section>
+  <section><h2>Control, revocation, and deletion</h2><p>Connections can be disconnected and all local data can be deleted in Settings. YouTube disconnect first calls Google's revocation endpoint and deletes related local API Data. If that call is unavailable, revoke access in <a href="https://security.google.com/settings/security/permissions" rel="noreferrer">Google Security permissions</a>, then use the explicit manual-revocation confirmation. You may also review <a href="https://policies.google.com/privacy" rel="noreferrer">Google's Privacy Policy</a>. Deletion does not remove playlists already created at a provider.</p></section>
+  <section><h2>Provider terms and attribution</h2><p>Optional YouTube API use is subject to the <a href="https://www.youtube.com/t/terms" rel="noreferrer">YouTube Terms of Service</a> and <a href="https://developers.google.com/youtube/terms/developer-policies" rel="noreferrer">YouTube API Developer Policies</a>. Spotify-linked data is identified as Spotify-supplied and links back to Spotify; use is subject to the <a href="https://developer.spotify.com/terms" rel="noreferrer">Spotify Developer Terms</a> and <a href="https://developer.spotify.com/policy" rel="noreferrer">Developer Policy</a>.</p></section>
+  <section><h2>Security and contact</h2><p>OAuth tokens are AES-256-GCM encrypted at rest; the vault key exists only while the local profile is unlocked. The MV3 extension receives no OAuth token or app cookie. This is a self-operated personal installation: its operator is the data controller and the contact shown on the operator's OAuth consent screen/source distribution is the privacy contact. The optional API flags are fail-closed until that operator has supplied a valid contact and accepted current provider policies.</p></section>
+  <p lang="ru">Русское резюме: данные остаются на компьютере, телеметрии и облачного backend нет; доступ Google можно отозвать, а локальные данные — полностью удалить. Опциональные provider endpoints выключены до явного принятия актуальных правил оператором локальной установки.</p>
+</body>
+</html>

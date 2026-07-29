@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Playlist-Transfer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">LOCAL GUIDED CONNECTOR</p>
+        <h1>Playlist-Transfer</h1>
+        <p class="lede">Расширение читает только URL активной вкладки после вашего клика.</p>
+      </header>
+
+      <section class="status-panel" aria-labelledby="status-title">
+        <div class="section-heading">
+          <h2 id="status-title">Состояние</h2>
+          <button id="refresh-button" class="quiet" type="button">Обновить</button>
+        </div>
+        <p id="pair-status" class="status">Проверка локального приложения…</p>
+        <p id="tab-status" class="status muted">Проверка текущей вкладки…</p>
+        <p id="resource-status" class="resource" hidden></p>
+      </section>
+
+      <section aria-labelledby="actions-title">
+        <h2 id="actions-title">Явные действия</h2>
+        <div class="button-stack">
+          <button id="pair-button" type="button">Подключить локальное приложение</button>
+          <button id="capture-resource-button" type="button" disabled>
+            Передать выбранную ссылку
+          </button>
+          <button id="capture-tab-button" class="secondary" type="button" disabled>
+            Подтвердить открытую вкладку сервиса
+          </button>
+        </div>
+        <div id="handoff-panel" class="handoff" hidden>
+          <p id="handoff-status"></p>
+          <button id="handoff-open-button" type="button">Открыть в Playlist-Transfer</button>
+        </div>
+      </section>
+
+      <section aria-labelledby="navigation-title">
+        <h2 id="navigation-title">Ожидающие шаги</h2>
+        <p id="navigation-empty" class="muted">Нет подготовленных переходов.</p>
+        <div id="navigation-list" class="navigation-list"></div>
+      </section>
+
+      <section class="safety" aria-labelledby="safety-title">
+        <h2 id="safety-title">Без скрытой автоматизации</h2>
+        <ul>
+          <li>DOM и содержимое страниц не читаются.</li>
+          <li>Клики и добавление треков не автоматизируются.</li>
+          <li>YouTube работает только через ссылки и ручной Save.</li>
+          <li>Owner и право записи подтверждаете вы или официальный API.</li>
+        </ul>
+      </section>
+
+      <details>
+        <summary>Приватность</summary>
+        <p>
+          Данные хранятся только в памяти браузерной сессии и автоматически истекают.
+          Cookies, пароли, OAuth-токены и сетевые ответы расширение не получает. Приватные
+          SoundCloud-ссылки шифруются, скрываются в интерфейсе и удаляются после выдачи.
+        </p>
+      </details>
+
+      <p id="error-message" class="error" role="alert" hidden></p>
+      <button id="clear-button" class="danger quiet" type="button">Удалить данные расширения</button>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
+
