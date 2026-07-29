@@ -143,7 +143,7 @@ export type TransferDetail = {
     failed?: number;
     percent?: number;
   };
-  bindingNeeds?: Array<{ planKey: string; title?: string; description?: string; privacy?: string; copyCover?: boolean; provider?: Provider; requiresNewEmptyDestination?: boolean; expectedVisibleItemCount?: 0 }>;
+  bindingNeeds?: Array<{ planKey: string; title?: string; description?: string; privacy?: string; copyCover?: boolean; provider?: Provider; requiresNewEmptyDestination?: boolean; expectedVisibleItemCount?: 0; createUrl?: string; userOperated?: boolean }>;
   externalGate?: { code?: string; status?: string; reason?: string; providerMutationPerformed?: boolean };
   capabilities?: { strategy?: string; domRead?: boolean; uiAutomation?: boolean; fullSideBySideComparison?: boolean; soundcloudTransfer?: string };
   report?: Record<string, unknown>;

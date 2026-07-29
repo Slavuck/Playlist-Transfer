@@ -22,12 +22,12 @@
 ## Gate prerequisites
 
 - [ ] Повторно проверены актуальные Spotify, SoundCloud и YouTube official policies.
-- [ ] `SC-BASE-LEGAL` получен в письменном виде и положителен перед любым real SoundCloud cross-service transfer.
+- [ ] `SC-BASE-LEGAL` получен в письменном виде и положителен перед любой автоматической SoundCloud API/DOM mutation; без него проверяется только user-operated `MANUAL_ONLY` path.
 - [ ] Spotify/SoundCloud DOM/UI accelerators остаются disabled, если отдельное письменное разрешение отсутствует.
 - [ ] Competitive side-by-side playback disabled для каждой пары без письменного разрешения обоих provider-ов и бесплатного official player path.
 - [ ] YouTube BYO project один и фиксированный; project rotation для quota bypass исключён.
 
-Пока второй пункт не закрыт, четыре направления с SoundCloud имеют статус **BLOCKED_EXTERNAL**, а не failed/pass.
+Пока второй пункт не закрыт, четыре направления с SoundCloud принудительно работают как **MANUAL_ONLY**: app automation выключена, а пользователь вручную выполняет выданное действие на официальной странице и отдельно подтверждает видимый результат.
 
 ## Автоматический release check
 
@@ -96,13 +96,14 @@
 - [ ] Read-after-write membership создаёт `VERIFIED_PROVIDER` только для точного `videoId`.
 - [ ] YouTube Music visibility отображается как limitation, а не гарантия.
 
-### SoundCloud guided
+### SoundCloud guided/manual
 
-- [ ] **BLOCKED_EXTERNAL**, пока `SC-BASE-LEGAL` не положителен.
-- [ ] После gate: permalink/oEmbed работает без Artist Pro.
-- [ ] После gate: oEmbed не выдаётся за URN/duration/ownership/write proof.
-- [ ] После gate: private permalink redacted; cookies/DOM/network responses не читаются.
-- [ ] После gate: playlist >500 items останавливается или разбивается только после confirmation.
+- [ ] Без положительного `SC-BASE-LEGAL` transfer помечен **MANUAL_ONLY**, а app не выполняет API/DOM mutation или auto-click.
+- [ ] Permalink/import работает без Artist Pro и выдаёт точные official-page действия.
+- [ ] oEmbed не выдаётся за URN/duration/ownership/write proof.
+- [ ] Private permalink redacted; cookies/DOM/network responses не читаются.
+- [ ] Playlist >500 items останавливается или разбивается только после confirmation.
+- [ ] Reconciliation создаёт только `USER_CONFIRMED_MANUAL`, никогда `VERIFIED_PROVIDER`.
 
 ## Матрица real-provider transfer
 
@@ -112,10 +113,10 @@
 |---|---|---|---|
 | Spotify → YouTube | NOT EXECUTED | — | — |
 | YouTube → Spotify | NOT EXECUTED | — | — |
-| Spotify → SoundCloud | BLOCKED_EXTERNAL | — | `SC-BASE-LEGAL` |
-| SoundCloud → Spotify | BLOCKED_EXTERNAL | — | `SC-BASE-LEGAL` |
-| SoundCloud → YouTube | BLOCKED_EXTERNAL | — | `SC-BASE-LEGAL` |
-| YouTube → SoundCloud | BLOCKED_EXTERNAL | — | `SC-BASE-LEGAL` |
+| Spotify → SoundCloud | NOT EXECUTED | — | `MANUAL_ONLY`; automation gate `SC-BASE-LEGAL=UNKNOWN` |
+| SoundCloud → Spotify | NOT EXECUTED | — | `MANUAL_ONLY`; automation gate `SC-BASE-LEGAL=UNKNOWN` |
+| SoundCloud → YouTube | NOT EXECUTED | — | `MANUAL_ONLY`; automation gate `SC-BASE-LEGAL=UNKNOWN` |
+| YouTube → SoundCloud | NOT EXECUTED | — | `MANUAL_ONLY`; automation gate `SC-BASE-LEGAL=UNKNOWN` |
 
 Для каждого выполненного case зафиксируйте:
 

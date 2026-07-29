@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Playlist-Transfer Guided Connector",
   "short_name": "Playlist-Transfer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Captures user-selected provider URLs for the local Playlist-Transfer app.",
   "minimum_chrome_version": "102",
   "incognito": "not_allowed",
@@ -28,4 +28,3 @@
     "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
   }
 }
-

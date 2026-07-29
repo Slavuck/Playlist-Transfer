@@ -7,21 +7,21 @@
 - **Да** — реализованный baseline path без платной подписки.
 - **Guided** — действие выполняет пользователь в видимой официальной вкладке; приложение не нажимает control.
 - **Optional API** — бесплатный для конкретной локальной установки официальный accelerator, но не обязательное условие; default выключен и требует точного acknowledgement-флага.
-- **External gate** — policy registry не имеет положительного решения; текущий runtime остаётся fail-closed независимо от наличия технической механики.
+- **External gate** — policy registry не имеет положительного решения; автоматизация остаётся fail-closed. Если официальный API-path недоступен, release обязан сохранить явный user-operated guided/manual path и не выдавать его за разрешённую автоматизацию.
 - **Нет** — отключено или запрещено в default build.
 
 ## Provider capabilities
 
 | Возможность | Spotify | SoundCloud | YouTube / YouTube Music |
 |---|---|---|---|
-| Baseline connection | `IDENTITY SAVED` для guided; не library access | `IDENTITY SAVED`/local import; transfer runtime `BLOCKED_EXTERNAL` | Обычная кнопка Google sign-in, если владелец сборки настроил Client ID; advanced BYO fallback; прямая owned-библиотека после exact acknowledgement |
+| Baseline connection | `IDENTITY SAVED` для guided; не library access | `IDENTITY SAVED`/local import; transfer runtime `MANUAL_ONLY` | Обычная кнопка Google sign-in, если владелец сборки настроил Client ID; advanced BYO fallback; прямая owned-библиотека после exact acknowledgement |
 | Provider password в приложении | Нет | Нет | Нет |
 | Source entity | Официальный Account Data ZIP/JSON до 10 000 позиций либо точный share URL/Spotify ID | Data portability archive только при наличии поддерживаемых playlist-файлов либо точный permalink | Массовый выбор API-owned playlists; иначе Google Takeout ZIP/CSV или точный URL |
 | Публичная metadata validation | Default URL syntax; optional oEmbed после exact acknowledgement, без ownership/write proof | Default URL syntax; optional oEmbed после exact acknowledgement, без URN/duration/ownership | Default URL syntax; optional oEmbed/API после exact acknowledgement |
 | Guaranteed ownership | `USER_ATTESTED_OWNED` в baseline | `USER_ATTESTED_OWNED`, дополнительно external gate | Только API-owned для guaranteed scope; manual — attested |
-| Baseline destination write | User-operated Add/Save | `BLOCKED_EXTERNAL`, действие не выдаётся | User-operated Save |
+| Baseline destination write | User-operated Add/Save | User-operated Add/Save на официальной странице; app не выполняет API/DOM mutation | User-operated Save |
 | Provider-verified write | Не в zero-budget baseline | Не в zero-budget baseline | Да, optional BYO API insert + read-after-write после exact acknowledgement |
-| Create playlist | Guided | `BLOCKED_EXTERNAL` | Guided или optional BYO API |
+| Create playlist | Guided | Guided user-operated на официальной странице | Guided или optional BYO API |
 | Collaborative | Не заявляется без provider verification | Не поддерживается | Non-owned experimental вне baseline; collaborator membership не доказана API |
 | DOM read | Нет, gate unknown/off | Нет, blocked/off | Нет, blocked |
 | UI auto-click | Нет, gate unknown/off | Нет, blocked/off | Нет, blocked |
@@ -44,12 +44,12 @@
 |---|---|---|---|
 | Spotify → YouTube | Spotify bulk export/exact share URLs + user attestation; oEmbed optional/off by default | Manual-selected exact `videoId`: optional BYO API write или guided Save | Технический baseline path; auto search/scoring blocked; real-provider acceptance не выполнен |
 | YouTube → Spotify | Массово выбранный API-owned snapshot, bulk export или exact URLs/user attestation | Spotify guided search/Add | Технический baseline path; real-provider acceptance не зафиксирован |
-| Spotify → SoundCloud | Spotify guided | SoundCloud target | **Runtime `BLOCKED_EXTERNAL` до mutation: `SC-BASE-LEGAL`** |
-| SoundCloud → Spotify | SoundCloud exact permalink import | Spotify guided | **Runtime `BLOCKED_EXTERNAL` до mutation: `SC-BASE-LEGAL`** |
-| SoundCloud → YouTube | SoundCloud exact permalink import | Manual-selected YouTube target | **Runtime `BLOCKED_EXTERNAL` до mutation: `SC-BASE-LEGAL`** |
-| YouTube → SoundCloud | API-owned snapshot или exact YouTube URLs | SoundCloud target | **Runtime `BLOCKED_EXTERNAL` до mutation: `SC-BASE-LEGAL`** |
+| Spotify → SoundCloud | Spotify guided | SoundCloud user-operated target | `MANUAL_ONLY`: exact official-page actions + reconciliation; no app mutation |
+| SoundCloud → Spotify | SoundCloud exact permalink/import | Spotify user-operated Add | `MANUAL_ONLY`: exact official-page actions + reconciliation; no app mutation |
+| SoundCloud → YouTube | SoundCloud exact permalink/import | Manual-selected YouTube target | `MANUAL_ONLY`: exact official-page actions + reconciliation; no app mutation |
+| YouTube → SoundCloud | API-owned snapshot или exact YouTube URLs | SoundCloud user-operated target | `MANUAL_ONLY`: exact official-page actions + reconciliation; no app mutation |
 
-Ни один путь не должен требовать Spotify Premium, SoundCloud Artist Pro, hosting или платный API. Текущая release-сборка не содержит пользовательского флага, который мог бы открыть SoundCloud transfer: даже будущий положительный ответ потребует обновления registry/кода и повторной release-проверки. Наличие import-механики и synthetic tests не меняет `BLOCKED_EXTERNAL`.
+Ни один путь не должен требовать Spotify Premium, SoundCloud Artist Pro, hosting или платный API. Текущая release-сборка не содержит пользовательского флага, который мог бы открыть автоматическую SoundCloud mutation: даже будущий положительный ответ потребует обновления registry/кода и повторной release-проверки. Import и user-operated guided actions доступны, но всегда помечены `MANUAL_ONLY`; пользовательская reconciliation создаёт только `USER_CONFIRMED_MANUAL`.
 
 ## Transfer modes и matching
 
@@ -97,7 +97,7 @@ Official oEmbed по умолчанию выключен. После точно�
 | Spotify oEmbed metadata | `unknown` | Выключено; только exact acknowledgement может открыть endpoint, не gate |
 | Spotify cross-provider auto matching | `blocked` | Нет automatic search/derived score; manual raw-metadata choice |
 | Spotify competitive playback | `blocked` | Только sequential/link-out |
-| SoundCloud base cross-service use | `unknown` | Runtime `BLOCKED_EXTERNAL` до mutation; нужен письменный ответ и новая release-проверка |
+| SoundCloud base cross-service use | `unknown` | Automation disabled; runtime выдаёт только `MANUAL_ONLY` official-page actions, нужен письменный ответ и новая release-проверка для автоматизации |
 | SoundCloud DOM read / UI write | `blocked` | Не входит в build |
 | SoundCloud competitive playback | `blocked` | Не входит в build |
 | YouTube owned Data API | `unknown` | Default off; release-owner Client ID или advanced BYO client только при exact acknowledgement |
@@ -113,7 +113,7 @@ Exact acknowledgement для двух optional endpoint-классов — `I_AC
 - YouTube: granular ledger разделяет `search` и `general`; period key основан на Pacific date (`America/Los_Angeles`, включая DST). После exhaustion конкретного bucket — ожидание следующей Pacific date либо manual watch URL/Save. Никакой ротации project-ов.
 - YouTube auth: `invalid_grant`, отсутствующий refresh token или 401 переводят connection в `REAUTH_REQUIRED`; API не ретраится до нового OAuth. При неудаче Google revoke disconnect/delete требует ручного revoke в Google security settings и отдельного confirmation до удаления локальных API Data.
 - Spotify: отсутствие API access не требует оплаты; используется guided official Web Player workflow.
-- SoundCloud: отсутствие Artist Pro не требует покупки; exact permalink может быть импортирован для технической подготовки, но transfer остаётся `BLOCKED_EXTERNAL`. Ни oEmbed, ни user attestation не открывают `SC-BASE-LEGAL`.
+- SoundCloud: отсутствие Artist Pro не требует покупки; exact permalink/export может быть импортирован, а transfer завершается через `MANUAL_ONLY` official-page actions. Ни oEmbed, ни user attestation не открывают `SC-BASE-LEGAL` и не разрешают приложению выполнять API/DOM mutation.
 - Любой unknown UI state останавливает automation и возвращает пошаговую reconciliation. Blind retry после неоднозначного timeout запрещён.
 
 ## Официальные источники для повторной проверки

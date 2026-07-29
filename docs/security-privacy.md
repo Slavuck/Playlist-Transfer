@@ -76,7 +76,7 @@ Default manifest содержит только:
 
 Pair invite истекает через 2 минуты, handoff — через 5 минут, staged navigation — через 10 минут. Request ID защищён от replay. Navigation не открывается автоматически: её подтверждает пользователь отдельным click.
 
-Private SoundCloud secret tokens редактируются в UI и шифруются в session storage до одноразового claim. Они не сохраняются в app-side import draft и не становятся доступным transfer input, пока направления SoundCloud имеют `BLOCKED_EXTERNAL`. Extension никогда не получает provider OAuth token или app session cookie и не присваивает данным `VERIFIED_PROVIDER`.
+Private SoundCloud secret tokens редактируются в UI и шифруются в session storage до одноразового claim. Они не сохраняются в app-side import draft и не становятся transfer input; для переноса нужен безопасный публичный permalink или локальный export. SoundCloud-направления работают только как `MANUAL_ONLY` карточки на официальной странице. Extension никогда не получает provider OAuth token или app session cookie и не присваивает данным `VERIFIED_PROVIDER`.
 
 ## OAuth и provider-specific ограничения
 
@@ -97,7 +97,7 @@ Guided baseline не получает Spotify token. Spotify API/Web Playback op
 
 ### SoundCloud
 
-Guided baseline не получает OAuth token. Public permalink можно локально разобрать, а oEmbed по умолчанию выключен. Независимо от oEmbed любой transfer с SoundCloud получает runtime-статус `BLOCKED_EXTERNAL`, пока `SC-BASE-LEGAL` остаётся `unknown`; provider mutation и guided transfer actions не запускаются. Artist Pro/API не prerequisite. DOM/UI automation и competitive playback выключены.
+Guided baseline не получает OAuth token. Public permalink можно локально разобрать, а oEmbed по умолчанию выключен. Пока `SC-BASE-LEGAL` остаётся `unknown`, любой transfer с SoundCloud принудительно работает как `MANUAL_ONLY`: приложение не выполняет API/DOM mutation, автоматическое создание destination или auto-click, но выдаёт последовательные official-page действия и ждёт явную пользовательскую reconciliation. Artist Pro/API не prerequisite. Competitive playback выключен.
 
 ## Backup, export и удаление
 
