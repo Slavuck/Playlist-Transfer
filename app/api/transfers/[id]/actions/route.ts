@@ -6,6 +6,7 @@ import { getTransferCoordinator } from "../../../../../packages/orchestrator/src
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start") }),
   z.object({ action: z.literal("run-next") }),
+  z.object({ action: z.literal("run-all") }),
   z.object({ action: z.literal("cancel") }),
   z.object({
     action: z.literal("bind-destination"),
@@ -29,6 +30,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const coordinator = getTransferCoordinator();
     if (input.action === "start") return apiOk(await coordinator.start(id));
     if (input.action === "run-next") return apiOk(await coordinator.runNext(id));
+    if (input.action === "run-all") return apiOk(await coordinator.runAll(id));
     if (input.action === "cancel") return apiOk(await coordinator.cancel(id));
     if (input.action === "bind-destination") return apiOk(await coordinator.bindDestination(id, input));
     return apiOk(await coordinator.reconcile(id, input));

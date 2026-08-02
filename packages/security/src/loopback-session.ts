@@ -64,6 +64,17 @@ export function createLocalSession(): LocalSession {
   return session;
 }
 
+export function resumeOrCreateLocalSession(request: Request): { session: LocalSession; created: boolean } {
+  const id = readCookie(request, SESSION_COOKIE);
+  const existing = id ? sessions.get(id) : undefined;
+  if (existing && existing.expiresAtMs >= Date.now()) {
+    existing.lastSeenAtMs = Date.now();
+    return { session: existing, created: false };
+  }
+  if (id) sessions.delete(id);
+  return { session: createLocalSession(), created: true };
+}
+
 export function requireLocalSession(request: Request): LocalSession {
   const id = readCookie(request, SESSION_COOKIE);
   const session = id ? sessions.get(id) : undefined;

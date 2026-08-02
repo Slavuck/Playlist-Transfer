@@ -18,7 +18,7 @@ function markBeforeMutation(error: unknown): never {
   throw wrapped;
 }
 
-export type YoutubeCredentials = YoutubeTokenSet & { clientId: string; channelId?: string };
+export type YoutubeCredentials = YoutubeTokenSet & { clientId: string; clientSecret?: string; channelId?: string };
 
 export type YoutubePlaylist = {
   id: string;
@@ -109,6 +109,7 @@ export class YoutubeApiClient {
     try {
       refreshed = await refreshYoutubeToken({
         clientId: this.credentials.clientId,
+        clientSecret: this.credentials.clientSecret,
         refreshToken: this.credentials.refreshToken,
         previousScopes: this.credentials.scopes,
         fetchImpl: this.options.fetchImpl,

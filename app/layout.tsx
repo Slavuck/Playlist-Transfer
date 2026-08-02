@@ -22,14 +22,17 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const hosted = process.env.PLAYLIST_TRANSFER_HOSTED === "1";
   return (
     <html lang="ru">
       <body>
-        <LanguageProvider>
-          <LocalSessionProvider>
-            <AppShell>{children}</AppShell>
-          </LocalSessionProvider>
-        </LanguageProvider>
+        {hosted ? children : (
+          <LanguageProvider>
+            <LocalSessionProvider>
+              <AppShell>{children}</AppShell>
+            </LocalSessionProvider>
+          </LanguageProvider>
+        )}
       </body>
     </html>
   );

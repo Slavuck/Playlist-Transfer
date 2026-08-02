@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   assertLoopbackRequest,
   createLocalSession,
+  resumeOrCreateLocalSession,
   requireCsrf,
   requireLocalRead,
   sessionCookie,
@@ -37,6 +38,15 @@ test("local reads require both the session cookie and short-lived nonce", () => 
     () => requireLocalRead(new Request("http://127.0.0.1:3210/api/transfers", { headers: { cookie } })),
     /SESSION_NONCE_REJECTED/,
   );
+});
+
+test("session bootstrap reuses the valid HttpOnly cookie across tabs", () => {
+  const first = createLocalSession();
+  const cookie = sessionCookie(first).split(";")[0];
+  const resumed = resumeOrCreateLocalSession(new Request("http://127.0.0.1:3210/api/session", { headers: { cookie } }));
+  assert.equal(resumed.created, false);
+  assert.equal(resumed.session.id, first.id);
+  assert.equal(resumed.session.csrf, first.csrf);
 });
 
 test("CSRF requires the HttpOnly session cookie and matching header", () => {

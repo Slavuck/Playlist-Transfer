@@ -77,17 +77,22 @@
 
 ## Provider connection/import
 
-### Spotify guided
+### Spotify SpotAPI + guided fallback
 
 - [ ] Обычный бесплатный аккаунт, без developer app/Premium prerequisite.
+- [ ] Diagnostic находит локальный Python и точную SpotAPI version; отсутствующая dependency даёт actionable error.
+- [ ] Форма принимает `sp_dc`/`sp_key`, отбрасывает прочие cookies и никогда не показывает secret после submit.
+- [ ] Owned library показывает только owner-match + `canEditItems`; followed/public playlists исключены.
+- [ ] Catalog search возвращает реальные track IDs; SAFE/RISKY thresholds не выбирают случайный первый result.
+- [ ] Append выполняет read-before-write и read-after-write; ambiguous timeout требует reconciliation.
+- [ ] Истёкшая cookie session переводит connection в `REAUTH_REQUIRED` без blind retry.
 - [ ] Exact track и playlist share URLs принимаются; неверный origin/resource отклоняется.
 - [ ] oEmbed evidence не выдаётся за ownership/write verification.
-- [ ] Произвольный followed/public playlist не попадает в guaranteed default scope без `USER_ATTESTED_OWNED`.
 
 ### YouTube guided и BYO API
 
 - [ ] Manual watch URL всегда даёт конкретный 11-символьный `videoId`.
-- [ ] Desktop Client ID + PKCE loopback проходит; client secret не требуется.
+- [ ] Desktop Client ID + PKCE loopback проходит; если Google требует generated client secret, он задан только в `.env.local` и не отображается в UI.
 - [ ] UI показывает конкретный YouTube channel.
 - [ ] API source list содержит только owned playlists в guaranteed scope.
 - [ ] Multi-channel account требует осознанного выбора/проверки channel.

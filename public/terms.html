@@ -1,20 +1,21 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Terms · Playlist-Transfer</title>
-  <style>body{max-width:780px;margin:40px auto;padding:0 22px;font:16px/1.6 system-ui;color:#292520;background:#f4f0e8}a{color:#694fd6}section{background:#fffaf0;border-radius:22px;padding:22px;margin:18px 0}</style>
+  <title>Условия · Playlist-Transfer</title>
+  <style>body{max-width:820px;margin:40px auto;padding:0 22px;font:16px/1.65 system-ui;color:#f6f9fa;background:#121212}a{color:#d9a45e}section{background:#2a2e31;border-radius:22px;padding:22px;margin:18px 0}small{color:#c7cdcf}</style>
 </head>
 <body>
   <p><a href="/">← Playlist-Transfer</a></p>
-  <h1>Local terms of use / Условия локального использования</h1>
-  <p>Version 2026-07-29. Playlist-Transfer is an open-source personal tool operated on the user's own computer. It is provided without a hosted service or warranty.</p>
-  <section><h2>Your authority and actions</h2><p>Use only accounts and playlists you own or can edit. Verify the exact destination and target before each guided action. The app never guarantees that a manual confirmation is independent provider verification. Provider changes are not automatically rolled back when a transfer is cancelled.</p></section>
-  <section><h2>Provider rules</h2><p>You remain responsible for the rules of Spotify, YouTube/Google, and SoundCloud. YouTube API access additionally means accepting the <a href="https://www.youtube.com/t/terms" rel="noreferrer">YouTube Terms of Service</a>, <a href="https://developers.google.com/youtube/terms/api-services-terms-of-service" rel="noreferrer">API Services Terms</a>, and <a href="https://developers.google.com/youtube/terms/developer-policies" rel="noreferrer">Developer Policies</a>. Spotify use is subject to its <a href="https://developer.spotify.com/terms" rel="noreferrer">Developer Terms</a> and <a href="https://developer.spotify.com/policy" rel="noreferrer">Policy</a>.</p></section>
-  <section><h2>External gates</h2><p>SoundCloud transfer, cross-provider derived auto-matching, competitive side-by-side playback, and UI automation remain disabled where positive permission or compliance evidence is absent. A manual/guided limitation is not presented as provider verification.</p></section>
-  <section><h2>No abuse or circumvention</h2><p>Do not scrape providers, rotate API projects to evade quota, automate UI clicks, obtain provider passwords, upload unlawful content, or use the tool to alter another person's playlists without authority.</p></section>
-  <p lang="ru">Используя опциональный OAuth/API, оператор явно принимает актуальные условия соответствующего провайдера. Guided/manual режим остаётся бесплатным и не требует Premium, Artist Pro или платного hosting.</p>
-  <p><a href="/privacy.html">Privacy policy</a></p>
+  <h1>Условия использования</h1>
+  <p><small>Версия от 2 августа 2026 года.</small></p>
+  <section><h2>Разрешённое использование</h2><p>Используйте только собственные аккаунты и плейлисты либо ресурсы, которые вы вправе изменять. Перед записью проверьте направление, целевой плейлист и найденные соответствия. Перенос создаёт или меняет реальные плейлисты провайдера и не откатывается автоматически при закрытии страницы.</p></section>
+  <section><h2>Правила провайдеров</h2><p>Использование Spotify и YouTube регулируется также их условиями, OAuth-грантами и квотами. Доступ Spotify в development mode может быть ограничен allowlist и лимитами приложения разработчика. Hosted-версия использует официальный Spotify Web API; локальный SpotAPI является отдельным неофициальным режимом и не доступен на Vercel.</p></section>
+  <section><h2>Подбор треков</h2><p>Музыкальные каталоги различаются, поэтому идеальное соответствие не гарантируется. Для направления Spotify → YouTube пользователь обязан явно выбрать и подтвердить YouTube-видео. Пропускайте сомнительные live, cover, remix, sped-up и другие версии. Результат считается подтверждённым только после provider read-after-write проверки точных ID.</p></section>
+  <section><h2>Запрет злоупотреблений</h2><p>Нельзя передавать чужие cookies/пароли, обходить OAuth и квоты, ротировать API-проекты, скрапить или автоматически нажимать UI провайдеров, менять чужие плейлисты без разрешения либо использовать сервис для незаконного контента.</p></section>
+  <section><h2>Доступность и ответственность</h2><p>Проект предоставляется «как есть», без гарантии непрерывной доступности, точности каждого совпадения и неизменности API провайдеров. Пользователь отвечает за окончательное подтверждение действий и соблюдение применимых правил. SoundCloud automation в hosted-версии намеренно отключён.</p></section>
+  <p lang="en"><small>English summary: use only authorized accounts, review every destination match, comply with provider terms and quotas, and understand that provider writes are real and are not automatically rolled back.</small></p>
+  <p><a href="/privacy.html">Политика конфиденциальности</a></p>
 </body>
 </html>

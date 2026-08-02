@@ -79,7 +79,7 @@ export function DashboardPage() {
           <div className="stack">
             <p className="notice warning"><strong>SoundCloud:</strong> {ru ? "базовая юридическая позиция для cross-service transfer не подтверждена; DOM/UI и конкурентный player выключены." : "the base legal position for cross-service transfer is unconfirmed; DOM/UI and competitive playback are disabled."}</p>
             <p className="notice"><strong>YouTube Music:</strong> {ru ? "в YouTube-плейлист записывается точный 11-символьный videoId; existence/write proof определяется отдельным статусом evidence, а видимость в Music не гарантируется." : "an exact 11-character videoId is written to a YouTube playlist; separate evidence status determines existence/write proof, and visibility in Music is not guaranteed."}</p>
-            <p className="notice"><strong>Spotify:</strong> {ru ? "zero-budget путь — user-operated guided flow; Premium API не обязателен." : "the zero-budget path is a user-operated guided flow; Premium API access is not required."}</p>
+            <p className="notice"><strong>Spotify:</strong> {ru ? "zero-budget путь использует локальный SpotAPI для чтения и записи с read-after-write; при недоступной сессии остаётся ручной fallback." : "the zero-budget path uses local SpotAPI for reads and read-after-write verified writes, with a manual fallback when the session is unavailable."}</p>
           </div>
         </article>
       </section>

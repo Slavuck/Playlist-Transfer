@@ -31,7 +31,7 @@
     <section class="workflow" id="workflow">
       <div class="section-copy"><p class="eyebrow">НОРМАЛЬНЫЙ СЦЕНАРИЙ</p><h2>Аккаунт или официальный экспорт — не ручная таблица.</h2><p>Прямой account-доступ используется только там, где официальный бесплатный API действительно это позволяет. В остальных случаях Playlist-Transfer открывает официальный export-портал и локально читает скачанный архив.</p></div>
       <ol class="steps">
-        <li><span>01</span><div><strong>Получите библиотеку</strong><p>Войдите через Google либо скачайте официальный ZIP Spotify/Google Takeout.</p></div></li>
+        <li><span>01</span><div><strong>Получите библиотеку</strong><p>Подключите локальный SpotAPI или Google OAuth либо загрузите официальный export.</p></div></li>
         <li><span>02</span><div><strong>Выберите плейлисты</strong><p>Один архив может содержать сотни списков; порядок и повторы сохраняются.</p></div></li>
         <li><span>03</span><div><strong>Запустите перенос</strong><p>Выберите destination и точность. Непроверенные действия никогда не становятся «успехом» автоматически.</p></div></li>
       </ol>
@@ -41,7 +41,7 @@
       <div class="section-heading"><p class="eyebrow">ЧЕСТНЫЕ ВОЗМОЖНОСТИ</p><h2>Что доступно в бесплатной версии</h2></div>
       <div class="provider-grid">
         <article><div class="provider-head"><span class="provider yt">YT</span><span class="status verified">DIRECT API</span></div><h3>YouTube / Music</h3><p>Owned-плейлисты через официальный Google OAuth. Альтернатива — ZIP Google Takeout с playlist CSV.</p></article>
-        <article><div class="provider-head"><span class="provider sp">SP</span><span class="status">OFFICIAL EXPORT</span></div><h3>Spotify</h3><p>Официальный Account Data ZIP с Playlist JSON читается целиком. Premium и developer app не обязательны.</p></article>
+        <article><div class="provider-head"><span class="provider sp">SP</span><span class="status verified">LOCAL SPOTAPI</span></div><h3>Spotify</h3><p>Owned-плейлисты, поиск и запись через локальный SpotAPI. Premium и developer app не обязательны; export остаётся fallback.</p></article>
         <article><div class="provider-head"><span class="provider sc">SC</span><span class="status blocked">MANUAL ONLY</span></div><h3>SoundCloud</h3><p>Приложение не маскирует отсутствие API-доступа: выдаёт последовательные действия на официальной странице и сохраняет только ваше ручное подтверждение.</p></article>
       </div>
     </section>
