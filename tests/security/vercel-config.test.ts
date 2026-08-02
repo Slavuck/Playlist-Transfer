@@ -9,6 +9,7 @@ type VercelConfig = {
   installCommand?: string;
   buildCommand?: string;
   outputDirectory?: string;
+  regions?: string[];
   headers?: Array<{ source: string; headers: Header[] }>;
 };
 
@@ -22,27 +23,25 @@ function headerMap(value: VercelConfig): Map<string, string> {
   return new Map((value.headers?.[0]?.headers ?? []).map((header) => [header.key.toLowerCase(), header.value]));
 }
 
-test("Git deployments can publish only the static website and cannot build the local application", () => {
+test("Git deployments build the hosted Next application and never publish the old static shell", () => {
   const root = config("vercel.json");
-  assert.equal(root.framework, null);
-  assert.equal(root.installCommand, "");
-  assert.equal(root.buildCommand, "true");
-  assert.equal(root.outputDirectory, "website");
+  assert.equal(root.framework, "nextjs");
+  assert.equal(root.installCommand, "npm ci");
+  assert.equal(root.buildCommand, "npm run build");
+  assert.equal(root.outputDirectory, ".next");
+  assert.deepEqual(root.regions, ["fra1"]);
 });
 
-test("both Vercel entry points enforce the same restrictive browser security policy", () => {
-  const rootHeaders = headerMap(config("vercel.json"));
-  const directHeaders = headerMap(config("website/vercel.json"));
-  assert.deepEqual(directHeaders, rootHeaders);
-
-  const csp = rootHeaders.get("content-security-policy") ?? "";
+test("legacy static website keeps its restrictive browser security policy", () => {
+  const headers = headerMap(config("website/vercel.json"));
+  const csp = headers.get("content-security-policy") ?? "";
   assert.match(csp, /default-src 'self'/);
   assert.match(csp, /form-action 'none'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /script-src 'none'/);
   assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval/);
-  assert.equal(rootHeaders.get("permissions-policy"), "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()");
-  assert.equal(rootHeaders.get("referrer-policy"), "no-referrer");
-  assert.equal(rootHeaders.get("x-content-type-options"), "nosniff");
-  assert.equal(rootHeaders.get("x-frame-options"), "DENY");
+  assert.equal(headers.get("permissions-policy"), "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()")
+  assert.equal(headers.get("referrer-policy"), "no-referrer");
+  assert.equal(headers.get("x-content-type-options"), "nosniff");
+  assert.equal(headers.get("x-frame-options"), "DENY");
 });

@@ -4,6 +4,7 @@ import { requireCsrf } from "../../../../../packages/security/src/loopback-sessi
 import { getTransferCoordinator } from "../../../../../packages/orchestrator/src/coordinator";
 
 const reviewSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("auto-match") }),
   z.object({
     action: z.literal("select"),
     itemId: z.string().min(1).max(128),
@@ -24,6 +25,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     requireUnlockedProfile();
     const { id } = await context.params;
     const input = reviewSchema.parse(await request.json());
+    if (input.action === "auto-match") return apiOk(await getTransferCoordinator().autoResolveReview(id));
     return apiOk(await getTransferCoordinator().review(id, {
       action: input.action,
       itemId: input.itemId,

@@ -18,6 +18,7 @@ import { useLocalSession } from "./local-session-provider";
 type Provider = ImportProvider;
 type Playlist = { id: string; provider: Provider; providerPlaylistId?: string; providerUrl: string; title: string; ownerLabel: string; eligibility: string; itemCount: number; partial: boolean; sourceVersion: string };
 type YoutubePlaylist = { id: string; title: string; itemCount: number; privacyStatus: string; ownership: string };
+type SpotifyPlaylist = { id: string; title: string; description: string; itemCount: number; privacyStatus: string; ownership: string; url: string };
 type Connection = { provider: Provider; accountLabel: string; strategy: "guided" | "api"; status: string; limitations: string[] };
 
 export function PlaylistsPage() {
@@ -30,6 +31,10 @@ export function PlaylistsPage() {
   const [youtubeSelected, setYoutubeSelected] = useState<string[]>([]);
   const [youtubeQuery, setYoutubeQuery] = useState("");
   const [youtubeStatus, setYoutubeStatus] = useState("LOADING");
+  const [spotifyOwned, setSpotifyOwned] = useState<SpotifyPlaylist[]>([]);
+  const [spotifySelected, setSpotifySelected] = useState<string[]>([]);
+  const [spotifyQuery, setSpotifyQuery] = useState("");
+  const [spotifyStatus, setSpotifyStatus] = useState("LOADING");
   const [provider, setProvider] = useState<Provider>("spotify");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -57,6 +62,16 @@ export function PlaylistsPage() {
       setYoutubeStatus(reason instanceof Error ? reason.message : "YOUTUBE_API_NOT_CONNECTED");
     }
   }, [api]);
+  const loadSpotify = useCallback(async () => {
+    setSpotifyStatus("LOADING");
+    try {
+      setSpotifyOwned(await api<SpotifyPlaylist[]>("/api/spotify/playlists"));
+      setSpotifyStatus("CONNECTED");
+    } catch (reason) {
+      setSpotifyOwned([]);
+      setSpotifyStatus(reason instanceof Error ? reason.message : "SPOTAPI_NOT_CONNECTED");
+    }
+  }, [api]);
 
   useEffect(() => {
     const applyDraft = (draftCaptures: GuidedCapture[]) => {
@@ -80,13 +95,17 @@ export function PlaylistsPage() {
         if (spotify) setBulkOwner(spotify.accountLabel);
       }).catch(() => setConnections([]));
       void loadYoutube();
+      void loadSpotify();
     }, 0);
     return () => { window.clearTimeout(timer); window.removeEventListener("storage", onStorage); };
-  }, [api, loadYoutube, reload]);
+  }, [api, loadSpotify, loadYoutube, reload]);
 
   const youtubeConnection = connections.find((item) => item.provider === "youtube" && item.strategy === "api" && item.status === "CONNECTED");
+  const spotifyConnection = connections.find((item) => item.provider === "spotify" && item.strategy === "api" && item.status === "CONNECTED");
   const importedYoutubeIds = useMemo(() => new Set(playlists.filter((item) => item.provider === "youtube" && item.eligibility === "API_VERIFIED_OWNED").map((item) => item.providerPlaylistId)), [playlists]);
   const visibleYoutube = useMemo(() => youtubeOwned.filter((item) => item.title.toLocaleLowerCase().includes(youtubeQuery.trim().toLocaleLowerCase())), [youtubeOwned, youtubeQuery]);
+  const importedSpotifyIds = useMemo(() => new Set(playlists.filter((item) => item.provider === "spotify" && item.eligibility === "API_VERIFIED_OWNED").map((item) => item.providerPlaylistId)), [playlists]);
+  const visibleSpotify = useMemo(() => spotifyOwned.filter((item) => item.title.toLocaleLowerCase().includes(spotifyQuery.trim().toLocaleLowerCase())), [spotifyOwned, spotifyQuery]);
   const selectedBulk = bulkOptions.find((option) => option.key === bulkOptionKey) ?? bulkOptions[0];
   const bulkConnection = connections.find((item) => item.provider === bulkProvider && item.status !== "DISCONNECTED");
 
@@ -99,6 +118,18 @@ export function PlaylistsPage() {
       setYoutubeSelected([]);
       setMessage(ru ? `Синхронизировано плейлистов: ${playlistIds.length}. Треки загружены автоматически.` : `Synced ${playlistIds.length} playlists. Tracks were loaded automatically.`);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "YOUTUBE_SYNC_FAILED"); }
+    finally { setBusy(""); }
+  }
+
+  async function snapshotSpotify(playlistIds: string[]) {
+    if (!playlistIds.length) return;
+    setBusy("spotify-sync"); setError(""); setMessage("");
+    try {
+      await api("/api/spotify/playlists", { method: "POST", body: JSON.stringify({ action: "snapshot-many", playlistIds }) });
+      await reload();
+      setSpotifySelected([]);
+      setMessage(ru ? `Синхронизировано Spotify-плейлистов: ${playlistIds.length}. Все треки загружены автоматически.` : `Synced ${playlistIds.length} Spotify playlists. All tracks were loaded automatically.`);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "SPOTIFY_SYNC_FAILED"); }
     finally { setBusy(""); }
   }
 
@@ -178,6 +209,14 @@ export function PlaylistsPage() {
       <header className="page-header"><div><p className="eyebrow">ACCOUNT LIBRARIES · BULK FALLBACK</p><h1 className="page-title">{ru ? "Ваши плейлисты" : "Your playlists"}</h1><p className="page-subtitle">{ru ? "Основной путь — синхронизация библиотеки подключённого аккаунта. Файл-экспорт загружает до 10 000 треков за одно действие; построчный ввод оставлен только как аварийный инструмент." : "The primary path syncs a connected account library. A local export file loads up to 10,000 tracks in one action; per-row entry remains an emergency tool only."}</p></div><Link className="button" href="/connections">{ru ? "Управлять аккаунтами" : "Manage accounts"}</Link></header>
       {error && <p className="notice danger" role="alert">{error}</p>}{message && <p className="notice success" role="status">{message}</p>}
 
+      <section className="section card account-library" aria-labelledby="spotify-library-title">
+        <div className="card-head"><div><p className="eyebrow">DIRECT ACCOUNT LIBRARY · LOCAL SPOTAPI</p><h2 id="spotify-library-title">Spotify</h2><p className="muted">{ru ? "После подключения SpotAPI здесь видны ваши owned-плейлисты. Один выбор загружает названия, артистов, длительность и точные track ID." : "After connecting SpotAPI, your owned playlists appear here. One selection loads titles, artists, durations, and exact track IDs."}</p></div><span className={`badge ${spotifyConnection ? "verified" : "manual"}`}>{spotifyConnection ? "SPOTAPI CONNECTED" : "SETUP REQUIRED"}</span></div>
+        {spotifyConnection && spotifyStatus === "CONNECTED" ? <>
+          <div className="library-toolbar"><label className="field-label library-search"><span>{ru ? "Поиск" : "Search"}</span><input type="search" value={spotifyQuery} onChange={(event) => setSpotifyQuery(event.target.value)} placeholder={ru ? "Название плейлиста" : "Playlist title"} /></label><div className="page-actions"><button className="button" type="button" onClick={() => void loadSpotify()}>{ru ? "Обновить" : "Refresh"}</button><button className="button" type="button" onClick={() => setSpotifySelected(visibleSpotify.map((item) => item.id))}>{ru ? "Выбрать все" : "Select all"}</button><button className="button primary" type="button" disabled={!spotifySelected.length || busy === "spotify-sync"} onClick={() => void snapshotSpotify(spotifySelected)}>{busy === "spotify-sync" ? (ru ? "Синхронизация…" : "Syncing…") : (ru ? `Синхронизировать (${spotifySelected.length})` : `Sync (${spotifySelected.length})`)}</button></div></div>
+          {visibleSpotify.length ? <div className="library-list">{visibleSpotify.map((item) => <div className={`library-row ${spotifySelected.includes(item.id) ? "selected" : ""}`} key={item.id}><input aria-label={ru ? `Выбрать ${item.title}` : `Select ${item.title}`} type="checkbox" checked={spotifySelected.includes(item.id)} onChange={(event) => setSpotifySelected((current) => event.target.checked ? [...new Set([...current, item.id])] : current.filter((id) => id !== item.id))} /><span className="list-row-copy"><strong>{item.title}</strong><small>{item.itemCount} · {item.privacyStatus} · API_OWNED</small></span>{importedSpotifyIds.has(item.id) && <span className="badge verified">SYNCED</span>}<button className="button small-button" type="button" disabled={busy === "spotify-sync"} onClick={() => void snapshotSpotify([item.id])}>{ru ? "Обновить" : "Sync"}</button></div>)}</div> : <div className="empty-state"><div><h3>{ru ? "Плейлисты не найдены" : "No playlists found"}</h3><p>{ru ? "Сбросьте поиск или создайте owned-плейлист в Spotify." : "Clear the search or create an owned Spotify playlist."}</p></div></div>}
+        </> : <div className="empty-state"><div><span className="badge manual">{spotifyStatus}</span><h3>{ru ? "Подключите SpotAPI один раз" : "Connect SpotAPI once"}</h3><p>{ru ? "Нужна действующая локальная Spotify web-сессия; Client ID и Premium не требуются." : "A valid local Spotify web session is required; no Client ID or Premium is needed."}</p><Link className="button primary" href="/connections#spotify-direct">{ru ? "Подключить SpotAPI" : "Connect SpotAPI"}</Link></div></div>}
+      </section>
+
       <section className="section card account-library" aria-labelledby="youtube-library-title">
         <div className="card-head"><div><p className="eyebrow">DIRECT ACCOUNT LIBRARY · OFFICIAL API</p><h2 id="youtube-library-title">YouTube / YouTube Music</h2><p className="muted">{ru ? "После Google OAuth здесь появляются все owned-плейлисты. Выберите нужные и синхронизируйте их целиком — названия, count и все videoId читаются автоматически." : "After Google OAuth, every owned playlist appears here. Select playlists and sync them in full; titles, counts, and every videoId are read automatically."}</p></div><span className={`badge ${youtubeConnection ? "verified" : "manual"}`}>{youtubeConnection ? "API CONNECTED" : "SETUP REQUIRED"}</span></div>
         {youtubeConnection && youtubeStatus === "CONNECTED" ? <>
@@ -186,8 +225,7 @@ export function PlaylistsPage() {
         </> : <div className="empty-state"><div><span className="badge manual">{youtubeStatus}</span><h3>{ru ? "Подключите Google один раз" : "Connect Google once"}</h3><p>{ru ? "Нужен бесплатный собственный Google Cloud Desktop OAuth client. После подключения ручной ввод YouTube-треков не требуется." : "A free personal Google Cloud Desktop OAuth client is required. Once connected, no manual YouTube track entry is needed."}</p><Link className="button primary" href="/connections#youtube-direct">{ru ? "Настроить прямую синхронизацию" : "Set up direct sync"}</Link></div></div>}
       </section>
 
-      <section className="section grid two">
-        <article className="card"><p className="eyebrow">SPOTIFY · FREE BASELINE</p><h2>{ru ? "Без ложного «подключено»" : "No fake “connected” state"}</h2><p className="muted">{ru ? "Подтверждённая вкладка доказывает только выбранный профиль и не даёт приложению библиотеку. Spotify Web API Development Mode требует Premium у владельца OAuth app, поэтому прямой sync нельзя выдавать за бесплатную возможность." : "An attested tab proves only the selected profile and does not grant library access. Spotify Web API Development Mode requires Premium for the OAuth app owner, so direct sync cannot be represented as a free capability."}</p><span className="badge manual">BULK FILE FALLBACK</span></article>
+      <section className="section">
         <article className="card"><p className="eyebrow">SOUNDCLOUD · MANUAL-ONLY GATE</p><h2>{ru ? "Artist Pro не маскируется" : "Artist Pro is not hidden"}</h2><p className="muted">{ru ? "SoundCloud выдаёт self-service API credentials только с Artist Pro, поэтому приложение не выполняет SoundCloud API/DOM mutation. Библиотеку можно подготовить bulk-файлом, а перенос продолжить пошаговыми действиями на официальной странице с отдельным пользовательским подтверждением результата." : "SoundCloud grants self-service API credentials only with Artist Pro, so the app performs no SoundCloud API/DOM mutations. A bulk file can prepare the library, and transfer continues through explicit official-page actions with a separate user result confirmation."}</p><span className="badge manual">USER OPERATED · MANUAL ONLY</span></article>
       </section>
 

@@ -1,12 +1,13 @@
 # Capability matrix
 
-Версия policy registry в коде: `2026-07-29`. Эта матрица описывает guided zero-budget local build. Дата версии не означает, что provider/security compliance audit или ручная acceptance-проверка выполнены; матрица не является юридическим заключением и не превращает внешний provider gate в `allowed`.
+Версия policy registry в коде: `2026-08-02`. Эта матрица описывает zero-budget local build. Дата версии не означает, что provider/security compliance audit или ручная acceptance-проверка выполнены.
 
 Обозначения:
 
 - **Да** — реализованный baseline path без платной подписки.
 - **Guided** — действие выполняет пользователь в видимой официальной вкладке; приложение не нажимает control.
 - **Optional API** — бесплатный для конкретной локальной установки официальный accelerator, но не обязательное условие; default выключен и требует точного acknowledgement-флага.
+- **SpotAPI** — локальный неофициальный Spotify private-API connector; default выключен и требует точного acknowledgement-флага.
 - **External gate** — policy registry не имеет положительного решения; автоматизация остаётся fail-closed. Если официальный API-path недоступен, release обязан сохранить явный user-operated guided/manual path и не выдавать его за разрешённую автоматизацию.
 - **Нет** — отключено или запрещено в default build.
 
@@ -14,27 +15,27 @@
 
 | Возможность | Spotify | SoundCloud | YouTube / YouTube Music |
 |---|---|---|---|
-| Baseline connection | `IDENTITY SAVED` для guided; не library access | `IDENTITY SAVED`/local import; transfer runtime `MANUAL_ONLY` | Обычная кнопка Google sign-in, если владелец сборки настроил Client ID; advanced BYO fallback; прямая owned-библиотека после exact acknowledgement |
+| Baseline connection | Local SpotAPI session; guided fallback остаётся | `IDENTITY SAVED`/local import; transfer runtime `MANUAL_ONLY` | Обычная кнопка Google sign-in, если владелец сборки настроил Client ID; advanced BYO fallback; прямая owned-библиотека после exact acknowledgement |
 | Provider password в приложении | Нет | Нет | Нет |
-| Source entity | Официальный Account Data ZIP/JSON до 10 000 позиций либо точный share URL/Spotify ID | Data portability archive только при наличии поддерживаемых playlist-файлов либо точный permalink | Массовый выбор API-owned playlists; иначе Google Takeout ZIP/CSV или точный URL |
+| Source entity | Массовый выбор SpotAPI-owned playlists; иначе Account Data ZIP/JSON или точный share URL | Data portability archive только при наличии поддерживаемых playlist-файлов либо точный permalink | Массовый выбор API-owned playlists; иначе Google Takeout ZIP/CSV или точный URL |
 | Публичная metadata validation | Default URL syntax; optional oEmbed после exact acknowledgement, без ownership/write proof | Default URL syntax; optional oEmbed после exact acknowledgement, без URN/duration/ownership | Default URL syntax; optional oEmbed/API после exact acknowledgement |
-| Guaranteed ownership | `USER_ATTESTED_OWNED` в baseline | `USER_ATTESTED_OWNED`, дополнительно external gate | Только API-owned для guaranteed scope; manual — attested |
-| Baseline destination write | User-operated Add/Save | User-operated Add/Save на официальной странице; app не выполняет API/DOM mutation | User-operated Save |
-| Provider-verified write | Не в zero-budget baseline | Не в zero-budget baseline | Да, optional BYO API insert + read-after-write после exact acknowledgement |
-| Create playlist | Guided | Guided user-operated на официальной странице | Guided или optional BYO API |
+| Guaranteed ownership | SpotAPI owner match + `canEditItems`; manual — attested | `USER_ATTESTED_OWNED`, дополнительно external gate | Только API-owned для guaranteed scope; manual — attested |
+| Baseline destination write | SpotAPI append + read-after-write; guided fallback | User-operated Add/Save на официальной странице; app не выполняет API/DOM mutation | User-operated Save |
+| Provider-verified write | Да, SpotAPI append + independent private-endpoint read-back | Не в zero-budget baseline | Да, optional BYO API insert + read-after-write после exact acknowledgement |
+| Create playlist | SpotAPI (title; provider-default privacy) или guided | Guided user-operated на официальной странице | Guided или optional BYO API |
 | Collaborative | Не заявляется без provider verification | Не поддерживается | Non-owned experimental вне baseline; collaborator membership не доказана API |
 | DOM read | Нет, gate unknown/off | Нет, blocked/off | Нет, blocked |
 | UI auto-click | Нет, gate unknown/off | Нет, blocked/off | Нет, blocked |
 | Official playback около 25% | Link-out/embed без обещания seek | Disabled | Видимый official iframe может seek к ближайшему keyframe |
 | Side-by-side competitive playback | Blocked, только sequential/link-out | Blocked, выключено | Недостаточно одного YouTube player: pair требует разрешения второго provider-а |
 | Платный API/subscription как prerequisite | Нет | Нет | Нет |
-| Главное ограничение | Spotify API development path не baseline; Premium/approval ограничения | Artist Pro API не baseline; `SC-BASE-LEGAL=UNKNOWN` | Нет отдельного YT Music API; quota и видимость в YTM не гарантированы |
+| Главное ограничение | SpotAPI неофициален, session cookies истекают, schema может измениться | Artist Pro API не baseline; `SC-BASE-LEGAL=UNKNOWN` | Нет отдельного YT Music API; quota и видимость в YTM не гарантированы |
 
 ### Operational constraints, требующие повторной ручной сверки
 
 Ниже зафиксированы допущения policy registry, а не доказательство завершённого provider review или принятия приложения provider-ом.
 
-- **Spotify:** владелец Development Mode app должен иметь Premium, а development app ограничен небольшим allowlist (на дату review — до 5 пользователей). Это делает API непригодным как гарантированный zero-budget baseline. Общий public connector не поставляется; refresh token не следует считать бессрочным (текущий maximum lifetime — 6 месяцев). Guided share-URL path не зависит от developer app.
+- **Spotify:** SpotAPI не требует Premium/developer app, но является неофициальным private-API wrapper. Cookie session может истечь, а private schema — измениться без совместимого versioning. Guided share-URL path остаётся независимым fallback.
 - **YouTube:** BYO project использует бесплатную default quota. Текущая локальная модель учитывает отдельный search bucket 100 calls и general bucket 10 000 units на календарную дату `America/Los_Angeles`; `playlistItems.insert` и playlist create моделируются по 50 general units, paginated reads — отдельно. Release gate запрещает cross-provider automatic search/scoring, поэтому обычный manual path не должен автоматически расходовать search bucket. Значения нужно повторно сверять перед release. OAuth project в Testing может требовать частую повторную авторизацию; приложение отражает это как `REAUTH_REQUIRED`.
 - **SoundCloud:** self-service API key требует Artist Pro и поэтому исключён из baseline. Public oEmbed не даёт стабильный URN, structured duration, playlist membership или write/ownership proof. Отдельного официального разрешения на конкретный cross-service transfer use case в repository нет; `SC-BASE-LEGAL` остаётся `unknown`.
 
@@ -42,8 +43,8 @@
 
 | Направление | Zero-budget source | Zero-budget destination | Release status |
 |---|---|---|---|
-| Spotify → YouTube | Spotify bulk export/exact share URLs + user attestation; oEmbed optional/off by default | Manual-selected exact `videoId`: optional BYO API write или guided Save | Технический baseline path; auto search/scoring blocked; real-provider acceptance не выполнен |
-| YouTube → Spotify | Массово выбранный API-owned snapshot, bulk export или exact URLs/user attestation | Spotify guided search/Add | Технический baseline path; real-provider acceptance не зафиксирован |
+| Spotify → YouTube | SpotAPI-owned snapshot, bulk export или exact URL | Manual-selected exact `videoId`: optional BYO API write или guided Save | Рабочий path; YouTube auto search/scoring blocked |
+| YouTube → Spotify | Массово выбранный API-owned snapshot, bulk export или exact URLs | SpotAPI search/create/append/read-back | Рабочий автоматический path при подключённой SpotAPI session |
 | Spotify → SoundCloud | Spotify guided | SoundCloud user-operated target | `MANUAL_ONLY`: exact official-page actions + reconciliation; no app mutation |
 | SoundCloud → Spotify | SoundCloud exact permalink/import | Spotify user-operated Add | `MANUAL_ONLY`: exact official-page actions + reconciliation; no app mutation |
 | SoundCloud → YouTube | SoundCloud exact permalink/import | Manual-selected YouTube target | `MANUAL_ONLY`: exact official-page actions + reconciliation; no app mutation |
@@ -70,7 +71,7 @@ Matching также задаётся per transfer, а не через тариф
 | `RISKY` | on | Разрешённый provider-validated connector может использовать более широкий порог; в default guided path решение остаётся за пользователем и получает видимый risk flag. |
 | `RISKY` | off | Только разрешённый provider-validated connector может применить guarded relevance fallback. В policy-gated guided path uncertain item пропускается и остаётся в отчёте. |
 
-Таблица режимов описывает автоматический алгоритм только там, где policy gate разрешает derived matching. В release-путях с Spotify или YouTube более строгий gate блокирует cross-provider automatic search и derived scoring независимо от `SAFE`/`RISKY`; ни один режим не подставляет «первый результат». Переключатель review при этом остаётся функциональным: `on` создаёт явную очередь, `off` честно пропускает uncertain items.
+Таблица режимов описывает автоматический алгоритм только там, где policy gate разрешает derived matching. Spotify SpotAPI допускает deterministic matching; YouTube destination по-прежнему блокирует cross-provider automatic search/scoring. Ни один режим не подставляет «первый результат» без порогов и provider validation.
 
 Review принимает 3–5 вручную собранных точных official URL и сохраняет решение per item. Пользователь сравнивает неизменённые raw title/artist/channel/duration metadata только если официальный endpoint действительно вернул их, и сам выбирает provider ID; для policy-gated cross-provider пары score не вычисляется и отображается `MANUAL CHOICE`/`NO DERIVED SCORE`. При недоступном read-back остаются canonical URL, exact ID и ручной выбор со статусом `URL SYNTAX ONLY · UNVERIFIED`: source title не подставляется, existence/duration/embeddable имеют неизвестный статус. LLM, embeddings, audio fingerprinting и скачивание аудио не используются.
 
@@ -93,9 +94,10 @@ Official oEmbed по умолчанию выключен. После точно�
 | Gate | Состояние | Default behavior |
 |---|---|---|
 | Spotify guided transfer | `allowed` | User-operated share URL/search/Add |
+| Spotify private SpotAPI | `unknown` | Default off; exact acknowledgement открывает local-only connector |
 | Spotify DOM read / UI write | `unknown` | Выключено, guided fallback |
 | Spotify oEmbed metadata | `unknown` | Выключено; только exact acknowledgement может открыть endpoint, не gate |
-| Spotify cross-provider auto matching | `blocked` | Нет automatic search/derived score; manual raw-metadata choice |
+| Spotify cross-provider auto matching | `allowed` | SpotAPI search + deterministic thresholds + provider validation |
 | Spotify competitive playback | `blocked` | Только sequential/link-out |
 | SoundCloud base cross-service use | `unknown` | Automation disabled; runtime выдаёт только `MANUAL_ONLY` official-page actions, нужен письменный ответ и новая release-проверка для автоматизации |
 | SoundCloud DOM read / UI write | `blocked` | Не входит в build |
@@ -106,13 +108,13 @@ Official oEmbed по умолчанию выключен. После точно�
 | YouTube collaborative API | `unknown` | Experimental non-owned вне baseline |
 | YouTube DOM read / UI write | `blocked` | Отсутствует; manual URL/Save или quota reset |
 
-Exact acknowledgement для двух optional endpoint-классов — `I_ACCEPT_PROVIDER_POLICIES` в `PLAYLIST_TRANSFER_ENABLE_YOUTUBE_API` либо `PLAYLIST_TRANSFER_ENABLE_PROVIDER_OEMBED`. Это self-attestation оператора, а не изменение значений registry и не доказательство compliance.
+Exact acknowledgement — `I_ACCEPT_PROVIDER_POLICIES` в `PLAYLIST_TRANSFER_ENABLE_SPOTAPI`, `PLAYLIST_TRANSFER_ENABLE_YOUTUBE_API` либо `PLAYLIST_TRANSFER_ENABLE_PROVIDER_OEMBED`. Это self-attestation оператора, а не доказательство compliance.
 
 ## Quota/access fallback
 
 - YouTube: granular ledger разделяет `search` и `general`; period key основан на Pacific date (`America/Los_Angeles`, включая DST). После exhaustion конкретного bucket — ожидание следующей Pacific date либо manual watch URL/Save. Никакой ротации project-ов.
 - YouTube auth: `invalid_grant`, отсутствующий refresh token или 401 переводят connection в `REAUTH_REQUIRED`; API не ретраится до нового OAuth. При неудаче Google revoke disconnect/delete требует ручного revoke в Google security settings и отдельного confirmation до удаления локальных API Data.
-- Spotify: отсутствие API access не требует оплаты; используется guided official Web Player workflow.
+- Spotify: истёкшая SpotAPI session требует свежих cookies; сбой до mutation включает guided fallback, а неоднозначный сбой после mutation — reconciliation/read-back.
 - SoundCloud: отсутствие Artist Pro не требует покупки; exact permalink/export может быть импортирован, а transfer завершается через `MANUAL_ONLY` official-page actions. Ни oEmbed, ни user attestation не открывают `SC-BASE-LEGAL` и не разрешают приложению выполнять API/DOM mutation.
 - Любой unknown UI state останавливает automation и возвращает пошаговую reconciliation. Blind retry после неоднозначного timeout запрещён.
 
@@ -120,7 +122,7 @@ Exact acknowledgement для двух optional endpoint-классов — `I_AC
 
 Policy/API условия меняются. Перед каждой release-сборкой сверяйте как минимум:
 
-- Spotify: [Developer Policy](https://developer.spotify.com/policy), [Developer Terms](https://developer.spotify.com/terms), [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes), [Download your data](https://support.spotify.com/article/data-rights-and-privacy-settings/) и [структура Spotify data](https://support.spotify.com/article/understanding-your-data/).
+- Spotify/SpotAPI: [SpotAPI repository](https://github.com/Aran404/SpotAPI), [Spotify Developer Policy](https://developer.spotify.com/policy), [Spotify Terms](https://www.spotify.com/legal/end-user-agreement/), [Download your data](https://support.spotify.com/article/data-rights-and-privacy-settings/) и [структура Spotify data](https://support.spotify.com/article/understanding-your-data/).
 - YouTube: [OAuth for installed apps](https://developers.google.com/identity/protocols/oauth2/native-app), [Data API getting started](https://developers.google.com/youtube/v3/getting-started), [Google Takeout](https://support.google.com/accounts/answer/3024190), [quota costs](https://developers.google.com/youtube/v3/determine_quota_cost), [Developer Policies](https://developers.google.com/youtube/terms/developer-policies) и [IFrame Player API](https://developers.google.com/youtube/iframe_api_reference).
 - SoundCloud: [API registration](https://developers.soundcloud.com/docs/api/register-app), [GDPR/data portability](https://help.soundcloud.com/hc/en-us/articles/360004066174-General-Data-Protection-Regulation-GDPR), [API Terms](https://developers.soundcloud.com/docs/api/terms-of-use), [SoundCloud Terms of Use](https://soundcloud.com/terms-of-use) и [Widget API](https://developers.soundcloud.com/docs/api/html5-widget).
 - Extension/platform: [Chrome MV3 permissions](https://developer.chrome.com/docs/extensions/mv3/declare_permissions), [Chrome content scripts](https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts) и [Microsoft Edge extensions](https://learn.microsoft.com/en-us/microsoft-edge/extensions/).

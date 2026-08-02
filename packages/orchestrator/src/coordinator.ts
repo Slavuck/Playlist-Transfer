@@ -39,6 +39,8 @@ import { providerLimitations } from "../../connectors-core/src/policy";
 import type { GuidedAction, ProviderConnector, ProviderEntityRef, ValidationResult } from "../../connectors-core/src/types";
 import { loadLocalYoutubeClient } from "../../connectors/youtube/src/local";
 import { youtubeQuotaPeriodKey, type YoutubeApiClient, type YoutubeCandidate } from "../../connectors/youtube/src/client";
+import { loadLocalSpotifyClient } from "../../connectors/spotify/src/local";
+import { type SpotifyApiClient, type SpotifyCandidate } from "../../connectors/spotify/src/client";
 import {
   getLocalDatabase,
   type JsonObject,
@@ -46,6 +48,8 @@ import {
   type TransferRecord,
 } from "../../storage-local/src/database";
 import { redactSecrets } from "../../storage-local/src/vault";
+
+type MutationAwareError = Error & { providerMutationMayHaveStarted?: boolean };
 
 const ACTIVE_ITEM_STATES = new Set<TrackItemState>([
   "PENDING",
@@ -68,6 +72,7 @@ type SnapshotTrack = {
   videoId?: string;
   providerUriOrUrl?: string;
   attributionUrl?: string;
+  isrc?: string;
 };
 
 type SnapshotRecord = {
@@ -182,6 +187,7 @@ export type CoordinatorDependencies = {
   database?: LocalDatabase;
   guidedConnector?: (provider: Provider) => ProviderConnector;
   youtubeClient?: () => YoutubeApiClient;
+  spotifyClient?: () => SpotifyApiClient;
   now?: () => Date;
   /** Test-only seam for exercising the deterministic matcher behind its release policy gate. */
   allowPolicyGatedAutoMatchingForTests?: boolean;
@@ -265,6 +271,7 @@ function sourceReference(provider: Provider, track: SnapshotTrack): ProviderTrac
     artistRaw: track.artistRaw,
     channelRaw: provider === "youtube" ? track.artistRaw : undefined,
     durationMs: track.durationMs,
+    isrc: track.isrc,
     embeddable: track.embeddable === true,
     availability: track.unavailable ? "UNAVAILABLE" : "AVAILABLE",
     attributionUrl: track.attributionUrl ?? url,
@@ -315,6 +322,24 @@ function youtubeTarget(candidate: YoutubeCandidate, now: () => Date): ProviderTr
   };
 }
 
+function spotifyTarget(candidate: SpotifyCandidate, now: () => Date): ProviderTrackReference {
+  return {
+    provider: "spotify",
+    entityKind: "track",
+    providerEntityId: candidate.providerEntityId,
+    providerUriOrUrl: candidate.providerUriOrUrl,
+    containsSecretUrl: false,
+    redactedDisplayUrl: candidate.providerUriOrUrl,
+    titleRaw: candidate.titleRaw,
+    artistRaw: candidate.artistRaw,
+    durationMs: candidate.durationMs,
+    isrc: candidate.isrc,
+    availability: candidate.availability,
+    attributionUrl: candidate.providerUriOrUrl,
+    fetchedAt: iso(now),
+  };
+}
+
 function candidateValidation(target: ProviderTrackReference, now: () => Date): CandidateValidation & { status: "PROVIDER_VALIDATED" } {
   return createProviderValidation(target, {
     kind: "PROVIDER_API",
@@ -322,7 +347,7 @@ function candidateValidation(target: ProviderTrackReference, now: () => Date): C
     providerEntityId: target.providerEntityId,
     checkedAt: iso(now),
     exists: true,
-    evidenceVersion: "youtube-data-api-v3",
+    evidenceVersion: target.provider === "spotify" ? "spotapi-private-api-v1" : "youtube-data-api-v3",
   });
 }
 
@@ -538,6 +563,7 @@ export class TransferCoordinator {
   private readonly database: LocalDatabase;
   private readonly guidedConnector: (provider: Provider) => ProviderConnector;
   private readonly youtubeClient: () => YoutubeApiClient;
+  private readonly spotifyClient: () => SpotifyApiClient;
   private readonly now: () => Date;
   private readonly allowPolicyGatedAutoMatchingForTests: boolean;
   private readonly locks = new Set<string>();
@@ -551,6 +577,7 @@ export class TransferCoordinator {
     this.database = dependencies.database ?? getLocalDatabase();
     this.guidedConnector = dependencies.guidedConnector ?? ((provider) => new GuidedConnector(provider));
     this.youtubeClient = dependencies.youtubeClient ?? loadLocalYoutubeClient;
+    this.spotifyClient = dependencies.spotifyClient ?? loadLocalSpotifyClient;
     this.now = dependencies.now ?? (() => new Date());
     this.allowPolicyGatedAutoMatchingForTests = dependencies.allowPolicyGatedAutoMatchingForTests === true;
   }
@@ -776,6 +803,41 @@ export class TransferCoordinator {
           nextDestination = { ...destination, eligibility: "UNVERIFIED_NON_OWNED" };
           nextTransfer = withLimitations(nextTransfer, "YOUTUBE_APPEND_GUIDED_USER_ATTESTED_ONLY");
         }
+      } else if (transfer.destinationProvider === "spotify") {
+        try {
+          const spotify = this.spotifyClient();
+          const owned = await spotify.listEligiblePlaylists();
+          const match = owned.find((playlist) => playlist.id === destination.providerPlaylistId);
+          if (!match) throw new Error("SPOTIFY_DESTINATION_NOT_API_OWNED");
+          const snapshot = await spotify.verifyPlaylist(destination.providerPlaylistId, []);
+          nextDestination = {
+            ...destination,
+            title: match.title,
+            description: match.description,
+            playlistUrl: match.url,
+            existingItemIds: snapshot.actualTrackIds,
+            existingItemCount: snapshot.actualTrackIds.length,
+            destinationSnapshotAtMs: snapshot.checkedAt,
+            destinationSnapshotVersion: match.snapshotId ?? createHash("sha256").update(JSON.stringify(snapshot.actualTrackIds)).digest("hex"),
+            eligibility: "PROVIDER_VERIFIED_OWNED",
+          };
+          nextTransfer = withoutLimitations(
+            nextTransfer,
+            "GUIDED_USER_ATTESTATION_NOT_PROVIDER_OWNERSHIP",
+            "SPOTAPI_CONNECTION_REQUIRED_FOR_AUTOMATION",
+            "GUIDED_MANUAL_MATCHING_REQUIRED",
+            "SAFE_POLICY_GATED_MANUAL_MODE",
+            "RISKY_POLICY_GATED_MANUAL_MODE",
+            "MANUAL_REVIEW_ENABLED",
+          );
+        } catch (error) {
+          if (error instanceof Error && error.message === "SPOTIFY_DESTINATION_NOT_API_OWNED") throw error;
+          if (!destination.ownershipAttested || !destination.editControlAttested) {
+            throw new Error("DESTINATION_OWNER_AND_EDIT_ATTESTATION_REQUIRED");
+          }
+          nextDestination = { ...destination, eligibility: "USER_ATTESTED_OWNED" };
+          nextTransfer = withLimitations(nextTransfer, "SPOTIFY_APPEND_GUIDED_USER_ATTESTED_ONLY", error instanceof Error ? error.message : "SPOTIFY_API_UNAVAILABLE");
+        }
       } else {
         if (!destination.ownershipAttested || !destination.editControlAttested) {
           throw new Error("DESTINATION_OWNER_AND_EDIT_ATTESTATION_REQUIRED");
@@ -872,25 +934,46 @@ export class TransferCoordinator {
     });
   }
 
-  private async match(transfer: TransferRecord): Promise<TransferRecord> {
+  private async match(transfer: TransferRecord, options: { retryReview?: boolean } = {}): Promise<TransferRecord> {
     const snapshots = this.snapshots(transfer);
     const existingItems = new Map(this.items(transfer.id).map((item) => [item.id, item]));
     const settings = transfer.settings as unknown as TransferSettings;
-    let youtube: YoutubeApiClient | undefined;
-    let youtubeUnavailable: string | undefined;
-    if (transfer.destinationProvider === "youtube"
-      && !destinationOf(transfer).forceGuided
-      && this.allowPolicyGatedAutoMatchingForTests) {
+    const destinationProvider = asProvider(transfer.destinationProvider);
+    const reviewDisabledRiskFlag = settings.matching.riskMode === "SAFE"
+      ? "SAFE_SKIPPED_UNCERTAIN_REVIEW_DISABLED"
+      : "RISKY_NO_POLICY_COMPLIANT_AUTO_CANDIDATE";
+    let apiUnavailable: string | undefined;
+    let searchCandidates: ((query: string, maxResults: number) => Promise<Array<YoutubeCandidate | SpotifyCandidate>>) | undefined;
+
+    if (destinationProvider === "spotify" && !destinationOf(transfer).forceGuided) {
       try {
-        youtube = this.youtubeClient();
+        const spotify = this.spotifyClient();
+        searchCandidates = (query, maxResults) => spotify.searchCandidates(query, maxResults);
       } catch (error) {
-        youtubeUnavailable = error instanceof Error ? error.message : "YOUTUBE_API_UNAVAILABLE";
+        apiUnavailable = error instanceof Error ? error.message : "SPOTIFY_API_UNAVAILABLE";
       }
-    } else if (transfer.destinationProvider === "youtube" && !destinationOf(transfer).forceGuided) {
-      youtubeUnavailable = "CROSS_PROVIDER_DERIVED_MATCHING_POLICY_GATE";
+    } else if (destinationProvider === "youtube" && !destinationOf(transfer).forceGuided && this.allowPolicyGatedAutoMatchingForTests) {
+      try {
+        const youtube = this.youtubeClient();
+        searchCandidates = (query, maxResults) => youtube.searchCandidates(query, maxResults);
+      } catch (error) {
+        apiUnavailable = error instanceof Error ? error.message : "YOUTUBE_API_UNAVAILABLE";
+      }
+    } else if (destinationProvider === "youtube" && !destinationOf(transfer).forceGuided) {
+      apiUnavailable = "CROSS_PROVIDER_DERIVED_MATCHING_POLICY_GATE";
     }
-    let nextTransfer = youtubeUnavailable ? withLimitations(transfer, "YOUTUBE_GUIDED_SEARCH_FALLBACK", youtubeUnavailable) : transfer;
-    if (!youtube) {
+
+    let nextTransfer = apiUnavailable
+      ? withLimitations(transfer, `${destinationProvider.toUpperCase()}_GUIDED_SEARCH_FALLBACK`, apiUnavailable)
+      : withoutLimitations(
+          transfer,
+          "GUIDED_MANUAL_MATCHING_REQUIRED",
+          "SAFE_POLICY_GATED_MANUAL_MODE",
+          "RISKY_POLICY_GATED_MANUAL_MODE",
+          "MANUAL_REVIEW_ENABLED",
+          "SPOTIFY_CROSS_PROVIDER_AUTO_MATCHING_DISABLED",
+        );
+    if (!searchCandidates) {
       nextTransfer = withLimitations(
         nextTransfer,
         "GUIDED_MANUAL_MATCHING_REQUIRED",
@@ -898,70 +981,65 @@ export class TransferCoordinator {
         settings.matching.reviewUncertain ? "MANUAL_REVIEW_ENABLED" : "UNCERTAIN_ITEMS_SKIP_WHEN_REVIEW_DISABLED",
       );
     }
+
     for (const snapshot of snapshots) {
       const tracks = Array.isArray(snapshot.snapshot.tracks) ? snapshot.snapshot.tracks : [];
       for (const [fallbackPosition, track] of tracks.entries()) {
         const position = Number.isSafeInteger(track.position) && track.position >= 0 ? track.position : fallbackPosition;
         const source = sourceReference(asProvider(transfer.sourceProvider), track);
-        const hypotheses = [...buildTrackHypotheses({ titleRaw: source.titleRaw, artistRaw: source.artistRaw, channelRaw: source.channelRaw })];
+        const cleanedArtist = source.provider === "youtube"
+          ? source.artistRaw?.replace(/\s*[-–—]\s*Topic$/iu, "").trim() || source.artistRaw
+          : source.artistRaw;
+        const hypotheses = [...buildTrackHypotheses({
+          titleRaw: source.titleRaw,
+          artistRaw: cleanedArtist,
+          uploaderRaw: source.channelRaw,
+          channelRaw: source.channelRaw,
+        })];
         const itemId = createHash("sha256").update(`${transfer.id}:${snapshot.id}:${position}`).digest("hex").slice(0, 32);
         const existing = existingItems.get(itemId);
-        if (existing && existing.state !== "PENDING") continue;
-        let item: StoredItem = existing ?? {
-          id: itemId,
-          transferId: transfer.id,
-          sourcePlaylistId: snapshot.id,
-          sourcePosition: position,
-          state: "PENDING",
-          sourceRef: source,
-          hypotheses,
-          candidates: [],
-          riskFlags: [],
-          updatedAtMs: this.now().getTime(),
-        };
+        const retryable = options.retryReview === true
+          && Boolean(existing && !existing.selectedTarget && ["NEEDS_REVIEW", "SKIPPED_NOT_FOUND"].includes(existing.state));
+        if (existing && existing.state !== "PENDING" && !retryable) continue;
+        let item: StoredItem = retryable && existing
+          ? { ...existing, state: "PENDING", sourceRef: source, hypotheses, candidates: [], decision: undefined, selectedTarget: undefined, riskFlags: [] }
+          : existing ?? {
+              id: itemId,
+              transferId: transfer.id,
+              sourcePlaylistId: snapshot.id,
+              sourcePosition: position,
+              state: "PENDING",
+              sourceRef: source,
+              hypotheses,
+              candidates: [],
+              riskFlags: [],
+              updatedAtMs: this.now().getTime(),
+            };
         if (source.availability !== "AVAILABLE") {
           item = { ...item, state: transitionTrackItem(item.state, "SKIPPED_NOT_FOUND"), riskFlags: ["SOURCE_UNAVAILABLE"] };
           persistItem(this.database, item);
           continue;
         }
-        if (!youtube) {
+        if (!searchCandidates) {
           const policyFlags = [
             "GUIDED_TARGET_SELECTION_REQUIRED",
             settings.matching.riskMode === "SAFE" ? "SAFE_POLICY_GATED_MANUAL_MODE" : "RISKY_POLICY_GATED_MANUAL_MODE",
-            ...(youtubeUnavailable === "CROSS_PROVIDER_DERIVED_MATCHING_POLICY_GATE"
-              ? ["CROSS_PROVIDER_DERIVED_SCORE_POLICY_GATE"]
-              : []),
+            ...(apiUnavailable === "CROSS_PROVIDER_DERIVED_MATCHING_POLICY_GATE" ? ["CROSS_PROVIDER_DERIVED_SCORE_POLICY_GATE"] : []),
+            ...(!settings.matching.reviewUncertain ? [reviewDisabledRiskFlag] : []),
           ];
           item = settings.matching.reviewUncertain
-            ? {
-                ...item,
-                state: transitionTrackItem(item.state, "NEEDS_REVIEW"),
-                decision: { kind: "REVIEW", reason: "Policy-compliant guided candidate selection requires explicit human review" },
-                riskFlags: policyFlags,
-              }
-            : {
-                ...item,
-                state: transitionTrackItem(item.state, "SKIPPED_NOT_FOUND"),
-                decision: {
-                  kind: "NOT_FOUND",
-                  reason: settings.matching.riskMode === "SAFE"
-                    ? "Safe mode skips uncertain guided matches when review is disabled"
-                    : "Risky mode still cannot invent or auto-select a provider target behind the policy gate",
-                },
-                riskFlags: [...policyFlags, settings.matching.riskMode === "SAFE"
-                  ? "SAFE_SKIPPED_UNCERTAIN_REVIEW_DISABLED"
-                  : "RISKY_NO_POLICY_COMPLIANT_AUTO_CANDIDATE"],
-              };
+            ? { ...item, state: transitionTrackItem(item.state, "NEEDS_REVIEW"), decision: { kind: "REVIEW", reason: "Official destination API is not connected; exact target selection requires review" }, riskFlags: policyFlags }
+            : { ...item, state: transitionTrackItem(item.state, "SKIPPED_NOT_FOUND"), decision: { kind: "NOT_FOUND", reason: "Destination search unavailable and review is disabled" }, riskFlags: policyFlags };
           persistItem(this.database, item);
           continue;
         }
         try {
-          const queries = buildSearchQueries({ provider: "youtube", hypotheses });
-          const providerCandidates: YoutubeCandidate[] = [];
+          const queries = buildSearchQueries({ provider: destinationProvider, hypotheses, isrc: source.isrc, supportsIsrc: destinationProvider === "spotify" });
+          const providerCandidates: Array<YoutubeCandidate | SpotifyCandidate> = [];
           const scoreProviderCandidates = (): ScoredCandidate[] => {
             const scored: ScoredCandidate[] = [];
             for (const candidate of providerCandidates) {
-              const target = youtubeTarget(candidate, this.now);
+              const target = candidate.provider === "spotify" ? spotifyTarget(candidate, this.now) : youtubeTarget(candidate, this.now);
               const validation = candidateValidation(target, this.now);
               const matchInput: MatchCandidateInput = {
                 target,
@@ -970,32 +1048,30 @@ export class TransferCoordinator {
                 artistRaw: candidate.artistRaw,
                 channelRaw: candidate.artistRaw,
                 durationMs: candidate.durationMs,
-                embeddable: candidate.embeddable,
+                isrc: candidate.provider === "spotify" ? candidate.isrc : undefined,
+                embeddable: candidate.provider === "youtube" ? candidate.embeddable : undefined,
                 providerRank: candidate.searchRank,
-                context: { topic: /- Topic$/i.test(candidate.artistRaw) },
+                context: candidate.provider === "spotify"
+                  ? { structuredArtist: true, licensed: true }
+                  : { topic: /- Topic$/iu.test(candidate.artistRaw) },
               };
               for (const hypothesis of hypotheses) {
-                scored.push(scoreCandidateForSource(
-                  { hypothesis, durationMs: source.durationMs, isrc: source.isrc },
-                  matchInput,
-                ));
+                scored.push(scoreCandidateForSource({ hypothesis, durationMs: source.durationMs, isrc: source.isrc }, matchInput));
               }
             }
             return scored;
           };
           for (const query of queries) {
-            const found = await youtube.searchCandidates(query.query, settings.matching.maxReviewCandidates);
+            const found = await searchCandidates(query.query, settings.matching.maxReviewCandidates);
             providerCandidates.push(...found);
             this.database.appendJournal({
               transferId: transfer.id,
               sequence: journalSequence(this.database, transfer.id),
               stepKind: "SEARCH",
-              stepKey: `search:${item.id}:${query.kind}`,
+              stepKey: `search:${item.id}:${destinationProvider}:${query.kind}`,
               status: "COMPLETED",
-              payload: { queryKind: query.kind, resultCount: found.length },
+              payload: { provider: destinationProvider, queryKind: query.kind, resultCount: found.length },
             });
-            // YouTube permits one quota-bounded fallback. A merely non-empty but
-            // low-confidence result set must not suppress the alternate hypothesis.
             if (decideMatch(scoreProviderCandidates(), settings.matching).kind === "HIGH_AUTO") break;
           }
           const scored = scoreProviderCandidates();
@@ -1008,40 +1084,33 @@ export class TransferCoordinator {
           item = { ...item, candidates: allDisplay };
           if (decision.selected) {
             const selected = allDisplay.find((candidate) => candidate.target.providerEntityId === decision.selected!.candidate.target.providerEntityId);
-            const selectionKind: MatchSelectionKind = decision.kind === "HIGH_AUTO"
-              ? "MATCHED_AUTO"
-              : decision.kind === "RISKY_MATCH"
-                ? "RISKY_MATCH"
-                : "RISKY_RELEVANCE_FALLBACK";
+            const selectionKind: MatchSelectionKind = decision.kind === "HIGH_AUTO" ? "MATCHED_AUTO" : decision.kind === "RISKY_MATCH" ? "RISKY_MATCH" : "RISKY_RELEVANCE_FALLBACK";
             item = {
               ...item,
               state: transitionTrackItem(item.state, "MATCHED_AUTO"),
-              selectedTarget: {
-                target: decision.selected.candidate.target,
-                validation: decision.selected.candidate.validation,
-                selectionKind,
-                writeStrategy: "API",
-              },
+              selectedTarget: { target: decision.selected.candidate.target, validation: decision.selected.candidate.validation, selectionKind, writeStrategy: "API" },
               decision: { kind: decision.kind, candidateId: selected?.candidateId ?? null, reason: decision.reason, decidedBy: "DETERMINISTIC_MATCHER" },
               riskFlags: decision.riskBadge ? [decision.kind] : [],
             };
           } else if (settings.matching.reviewUncertain) {
             item = { ...item, state: transitionTrackItem(item.state, "NEEDS_REVIEW"), decision: { kind: decision.kind, reason: decision.reason } };
           } else {
-            item = { ...item, state: transitionTrackItem(item.state, "SKIPPED_NOT_FOUND"), decision: { kind: decision.kind, reason: decision.reason } };
+            item = {
+              ...item,
+              state: transitionTrackItem(item.state, "SKIPPED_NOT_FOUND"),
+              decision: { kind: decision.kind, reason: decision.reason },
+              riskFlags: [...new Set([...item.riskFlags, reviewDisabledRiskFlag])],
+            };
           }
         } catch (error) {
-          const code = error instanceof Error ? error.message : "YOUTUBE_SEARCH_FAILED";
-          nextTransfer = withLimitations(nextTransfer, "YOUTUBE_SEARCH_FALLBACK_TO_GUIDED", code);
+          const code = error instanceof Error ? error.message : `${destinationProvider.toUpperCase()}_SEARCH_FAILED`;
+          nextTransfer = withLimitations(nextTransfer, `${destinationProvider.toUpperCase()}_SEARCH_FALLBACK_TO_GUIDED`, code);
           item = settings.matching.reviewUncertain
-            ? { ...item, state: transitionTrackItem(item.state, "NEEDS_REVIEW"), riskFlags: ["QUOTA_OR_ACCESS_GUIDED_FALLBACK", `${settings.matching.riskMode}_POLICY_GATED_MANUAL_MODE`] }
-            : { ...item, state: transitionTrackItem(item.state, "SKIPPED_NOT_FOUND"), decision: { kind: "NOT_FOUND", reason: "Provider search unavailable and review is disabled" }, riskFlags: ["QUOTA_OR_ACCESS_GUIDED_FALLBACK", "UNCERTAIN_ITEM_SKIPPED_REVIEW_DISABLED", `${settings.matching.riskMode}_POLICY_GATED_MANUAL_MODE`] };
-          if (/^(YOUTUBE_(?:GENERAL|SEARCH)_QUOTA_WAIT|YOUTUBE_QUOTA_WAIT|YOUTUBE_REAUTH_REQUIRED)$/.test(code)) {
-            youtube = undefined;
-            nextTransfer = {
-              ...nextTransfer,
-              destination: json({ ...destinationOf(nextTransfer), forceGuided: true }),
-            };
+            ? { ...item, state: transitionTrackItem(item.state, "NEEDS_REVIEW"), riskFlags: ["QUOTA_OR_ACCESS_GUIDED_FALLBACK"] }
+            : { ...item, state: transitionTrackItem(item.state, "SKIPPED_NOT_FOUND"), decision: { kind: "NOT_FOUND", reason: "Provider search unavailable and review is disabled" }, riskFlags: ["QUOTA_OR_ACCESS_GUIDED_FALLBACK", "UNCERTAIN_ITEM_SKIPPED_REVIEW_DISABLED", reviewDisabledRiskFlag] };
+          if (/_(?:REAUTH_REQUIRED|QUOTA_EXCEEDED|RATE_LIMITED|QUOTA_WAIT)$/u.test(code)) {
+            searchCandidates = undefined;
+            nextTransfer = { ...nextTransfer, destination: json({ ...destinationOf(nextTransfer), forceGuided: true }) };
           }
         }
         persistItem(this.database, item);
@@ -1178,6 +1247,13 @@ export class TransferCoordinator {
           ],
         };
       }
+    } else if (parsed.provider === "spotify") {
+      try {
+        checked = await this.spotifyClient().validateTargetEntity(parsed);
+      } catch (error) {
+        if (error instanceof Error && ["SPOTIFY_TARGET_NOT_FOUND", "SPOTIFY_NOT_FOUND"].includes(error.message)) throw error;
+        checked = await connector.validateTargetEntity(parsed);
+      }
     } else {
       checked = await connector.validateTargetEntity(parsed);
     }
@@ -1187,7 +1263,7 @@ export class TransferCoordinator {
     }, this.now);
     const validation: CandidateValidation = checked.evidence.providerReadBack
       ? createProviderValidation(target, {
-          kind: checked.evidence.method === "OFFICIAL_API" ? "PROVIDER_API" : "PROVIDER_OEMBED",
+          kind: checked.evidence.method === "OFFICIAL_API" || checked.evidence.method === "PROVIDER_PRIVATE_API" ? "PROVIDER_API" : "PROVIDER_OEMBED",
           provider: target.provider,
           providerEntityId: target.providerEntityId,
           checkedAt: new Date(checked.evidence.checkedAt).toISOString(),
@@ -1204,7 +1280,7 @@ export class TransferCoordinator {
         : "Syntax-confirmed official URL; provider read-back unavailable",
     }];
     let conflicts: readonly string[] = [];
-    const derivedScoringAllowed = this.allowPolicyGatedAutoMatchingForTests || (transfer.sourceProvider !== "spotify"
+    const derivedScoringAllowed = this.allowPolicyGatedAutoMatchingForTests || transfer.destinationProvider === "spotify" || (transfer.sourceProvider !== "spotify"
       && transfer.sourceProvider !== "youtube"
       && transfer.destinationProvider !== "spotify"
       && transfer.destinationProvider !== "youtube");
@@ -1249,6 +1325,27 @@ export class TransferCoordinator {
       embeddable: target.embeddable === true,
       provenance: candidateProvenance(target, validation, checked),
     };
+  }
+
+  async autoResolveReview(transferId: string) {
+    return this.locked(transferId, async () => {
+      let transfer = this.database.getTransfer(transferId);
+      if (!transfer) throw new Error("TRANSFER_NOT_FOUND");
+      if (transfer.state !== "NEEDS_REVIEW" || transfer.writePlan) throw new Error("TRANSFER_NOT_AVAILABLE_FOR_AUTOMATCH");
+      if (transfer.destinationProvider !== "spotify") throw new Error("AUTOMATCH_PROVIDER_NOT_AVAILABLE");
+      // Refresh ownership and the destination baseline before any decisions are
+      // rebuilt. This is read-only and makes an old guided draft safe to resume
+      // after the user connects a valid local SpotAPI session.
+      transfer = await this.preflight(transfer);
+      transfer = await this.match(transfer, { retryReview: true });
+      await this.prepareBlueprint(transfer);
+      this.database.audit("TRANSFER_REVIEW_AUTOMATCHED", transferId, {
+        provider: "spotify",
+        providerMutationPerformed: false,
+        remainingReviewItems: this.items(transferId).filter((item) => item.state === "NEEDS_REVIEW").length,
+      });
+      return this.view(transferId);
+    });
   }
 
   async review(transferId: string, input: { action: "select" | "skip" | "stage-candidates"; itemId: string; target?: unknown; targets?: string[] }) {
@@ -1310,16 +1407,20 @@ export class TransferCoordinator {
           target = chosen.target;
           validation = chosen.validation;
         }
-        const canApiWrite = transfer.destinationProvider === "youtube"
+        const canYoutubeApiWrite = transfer.destinationProvider === "youtube"
           && !destinationOf(transfer).forceGuided
           && validation.status === "PROVIDER_VALIDATED"
           && (() => { try { this.youtubeClient(); return true; } catch { return false; } })();
+        const canSpotifyApiWrite = transfer.destinationProvider === "spotify"
+          && !destinationOf(transfer).forceGuided
+          && validation.status === "PROVIDER_VALIDATED"
+          && (() => { try { this.spotifyClient(); return true; } catch { return false; } })();
         const matchingSettings = (transfer.settings as unknown as TransferSettings).matching;
         const selected = {
           ...reviewable,
           state: transitionTrackItem(reviewable.state, "USER_SELECTED"),
           candidates: item.candidates.some((candidate) => candidate.candidateId === chosen!.candidateId) ? item.candidates : [...item.candidates, chosen],
-          selectedTarget: { target, validation, selectionKind: "USER_SELECTED" as const, writeStrategy: canApiWrite ? "API" as const : "GUIDED_USER_ACTION" as const },
+          selectedTarget: { target, validation, selectionKind: "USER_SELECTED" as const, writeStrategy: canYoutubeApiWrite || canSpotifyApiWrite ? "API" as const : "GUIDED_USER_ACTION" as const },
           decision: { kind: "SELECTED", actor: "USER", candidateId: chosen.candidateId, decidedAt: iso(this.now), providerReadBack: validation.status === "PROVIDER_VALIDATED" },
           riskFlags: chosen.riskBadge
             ? [...new Set([...item.riskFlags, matchingSettings.riskMode === "RISKY" ? "RISKY_USER_SELECTED" : "SAFE_HUMAN_OVERRIDE"])]
@@ -1470,7 +1571,151 @@ export class TransferCoordinator {
     return action;
   }
 
+  private async completeSpotifyApiWrite(transfer: TransferRecord, item: StoredItem, plan: ImmutableWritePlan) {
+    const planned = findPlanItem(plan, item.id);
+    if (!planned || !item.selectedTarget || !item.idempotencyKey) throw new Error("PLANNED_ITEM_NOT_FOUND");
+    const target = item.selectedTarget.target;
+    if (target.provider !== "spotify" || !/^[A-Za-z0-9]{22}$/u.test(target.providerEntityId)) throw new Error("SPOTIFY_TRACK_ID_REQUIRED");
+    const fallbackBeforeMutation = async (code: string) => {
+      const guidedItem: StoredItem = {
+        ...item,
+        selectedTarget: { ...item.selectedTarget!, writeStrategy: "GUIDED_USER_ACTION" },
+        riskFlags: [...new Set([...item.riskFlags, code, "API_TO_GUIDED_BEFORE_MUTATION"])],
+      };
+      persistItem(this.database, guidedItem);
+      this.saveTransfer(withLimitations({
+        ...transfer,
+        destination: json({ ...destinationOf(transfer), forceGuided: true }),
+      }, "SPOTIFY_API_UNAVAILABLE_GUIDED_FALLBACK", code));
+      const action = await this.issueGuidedAction(this.database.getTransfer(transfer.id)!, guidedItem, plan);
+      return { completed: false, action, error: code, providerMutationPerformed: false };
+    };
+    let spotify: SpotifyApiClient;
+    try { spotify = this.spotifyClient(); }
+    catch (error) { return fallbackBeforeMutation(error instanceof Error ? error.message : "SPOTIFY_API_NOT_CONNECTED"); }
+
+    const stepKey = `api:${item.id}`;
+    const previous = this.database.listJournal(transfer.id).find((entry) => entry.stepKey === stepKey);
+    let issuedAt = typeof (previous?.payload as JsonObject | undefined)?.issuedAt === "string" ? String((previous!.payload as JsonObject).issuedAt) : iso(this.now);
+    const beforeCount = Number((previous?.payload as JsonObject | undefined)?.beforeTargetCount ?? -1);
+    if (previous?.status === "RUNNING" && beforeCount >= 0) {
+      try {
+        if (!this.renewLease(transfer.id)) throw new Error("TRANSFER_LEASE_LOST");
+        const recovery = await spotify.verifyPlaylist(planned.destinationPlaylistId, []);
+        if (countById(recovery.actualTrackIds, target.providerEntityId) > beforeCount) {
+          const receipt = createProviderVerifiedReceipt(
+            baseReceipt(item, transfer.id, planned.destinationPlaylistId, issuedAt),
+            item.selectedTarget.validation,
+            { kind: "API_READ_AFTER_WRITE", provider: "spotify", destinationPlaylistId: planned.destinationPlaylistId, checkedAt: new Date(Math.max(recovery.checkedAt, Date.parse(issuedAt))).toISOString(), observedProviderEntityIds: recovery.actualTrackIds, evidenceVersion: "spotapi-playlist-readback-v1-recovery" },
+          );
+          const written = { ...item, state: transitionTrackItem(item.state, "WRITTEN") };
+          this.database.transaction(() => {
+            saveReceipt(this.database, item, receipt, item.riskFlags.length > 0);
+            persistItem(this.database, written);
+            persistItem(this.database, { ...written, state: transitionTrackItem(written.state, "VERIFIED_PROVIDER", { receipt }) });
+            this.database.appendJournal({ transferId: transfer.id, sequence: Number(previous.sequence), stepKind: "API_ADD", stepKey, status: "COMPLETED", payload: { recoveredByReadBack: true, beforeTargetCount: beforeCount } });
+          });
+          return { completed: true, recovered: true };
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === "TRANSFER_LEASE_LOST") throw error;
+      }
+      const pending = { ...item, state: transitionTrackItem(item.state, "AWAITING_USER_RECONCILIATION"), riskFlags: [...new Set([...item.riskFlags, "AMBIGUOUS_API_RESULT"])] };
+      const action = await this.issueReconciliationAction(transfer, pending, planned.destinationPlaylistId, issuedAt);
+      return { completed: false, action };
+    }
+
+    let before: Awaited<ReturnType<SpotifyApiClient["verifyPlaylist"]>>;
+    try {
+      if (!this.renewLease(transfer.id)) throw new Error("TRANSFER_LEASE_LOST");
+      before = await spotify.verifyPlaylist(planned.destinationPlaylistId, []);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "SPOTIFY_PREWRITE_READ_FAILED";
+      if (code === "TRANSFER_LEASE_LOST") throw error;
+      return fallbackBeforeMutation(code);
+    }
+    const initialCount = countById(before.actualTrackIds, target.providerEntityId);
+    const destination = destinationOf(transfer);
+    const priorSuccessfulTargets = this.database.listReceipts(transfer.id)
+      .filter((receipt) => receipt.destinationPlaylistId === planned.destinationPlaylistId
+        && (receipt.verificationStatus === "VERIFIED_PROVIDER" || receipt.verificationStatus === "USER_CONFIRMED_MANUAL"))
+      .map((receipt) => String(receipt.targetEntityId));
+    const expectedBefore = [...destination.existingItemIds, ...priorSuccessfulTargets];
+    if (before.actualTrackIds.length !== expectedBefore.length || before.actualTrackIds.some((id, index) => id !== expectedBefore[index])) {
+      this.saveTransfer(withLimitations(transfer, "SPOTIFY_DESTINATION_CHANGED_AFTER_PLAN_RESTART_REQUIRED"));
+      this.database.appendJournal({
+        transferId: transfer.id,
+        sequence: journalSequence(this.database, transfer.id),
+        stepKind: "CONCURRENT_EDIT_GUARD",
+        stepKey: `concurrent-edit:${item.id}`,
+        status: "BLOCKED_BEFORE_MUTATION",
+        payload: { expectedCount: expectedBefore.length, actualCount: before.actualTrackIds.length, checkedAt: before.checkedAt, providerMutationPerformed: false, rawProviderIdsPersisted: false },
+      });
+      throw new Error("SPOTIFY_DESTINATION_CHANGED_AFTER_PLAN_RESTART_REQUIRED");
+    }
+    issuedAt = iso(this.now);
+    this.database.appendJournal({
+      transferId: transfer.id,
+      sequence: journalSequence(this.database, transfer.id),
+      stepKind: "API_ADD",
+      stepKey,
+      status: "RUNNING",
+      payload: { issuedAt, destinationPlaylistId: planned.destinationPlaylistId, targetEntityId: target.providerEntityId, beforeTargetCount: initialCount, idempotencyKey: planned.idempotencyKey },
+    });
+    let appendAcknowledged = false;
+    try {
+      if (!this.renewLease(transfer.id)) throw new Error("TRANSFER_LEASE_LOST");
+      await spotify.appendItem(planned.destinationPlaylistId, target.providerEntityId);
+      appendAcknowledged = true;
+      const after = await spotify.verifyPlaylist(planned.destinationPlaylistId, []);
+      if (countById(after.actualTrackIds, target.providerEntityId) <= initialCount) throw new Error("SPOTIFY_WRITE_NOT_OBSERVED_AFTER_APPEND");
+      const receipt = createProviderVerifiedReceipt(
+        baseReceipt(item, transfer.id, planned.destinationPlaylistId, issuedAt),
+        item.selectedTarget.validation,
+        { kind: "API_READ_AFTER_WRITE", provider: "spotify", destinationPlaylistId: planned.destinationPlaylistId, checkedAt: new Date(Math.max(after.checkedAt, Date.parse(issuedAt))).toISOString(), observedProviderEntityIds: after.actualTrackIds, evidenceVersion: "spotapi-playlist-readback-v1" },
+      );
+      const written = { ...item, state: transitionTrackItem(item.state, "WRITTEN") };
+      this.database.transaction(() => {
+        saveReceipt(this.database, item, receipt, item.riskFlags.length > 0);
+        persistItem(this.database, written);
+        persistItem(this.database, { ...written, state: transitionTrackItem(written.state, "VERIFIED_PROVIDER", { receipt }) });
+        this.database.appendJournal({ transferId: transfer.id, sequence: journalSequence(this.database, transfer.id), stepKind: "API_ADD", stepKey, status: "COMPLETED", payload: { issuedAt, beforeTargetCount: initialCount, verifiedAt: after.checkedAt } });
+      });
+      return { completed: true };
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "SPOTIFY_API_WRITE_FAILED";
+      if (code === "TRANSFER_LEASE_LOST") throw error;
+      const providerMutationMayHaveStarted = (error as MutationAwareError | undefined)?.providerMutationMayHaveStarted;
+      if (!appendAcknowledged && providerMutationMayHaveStarted === false) {
+        this.database.appendJournal({ transferId: transfer.id, sequence: journalSequence(this.database, transfer.id), stepKind: "API_ADD", stepKey, status: "FAILED_BEFORE_MUTATION", payload: { issuedAt, beforeTargetCount: initialCount, error: code, providerMutationPerformed: false } });
+        return fallbackBeforeMutation(code);
+      }
+      try {
+        const after = await spotify.verifyPlaylist(planned.destinationPlaylistId, []);
+        if (countById(after.actualTrackIds, target.providerEntityId) > initialCount) {
+          const receipt = createProviderVerifiedReceipt(
+            baseReceipt(item, transfer.id, planned.destinationPlaylistId, issuedAt),
+            item.selectedTarget.validation,
+            { kind: "API_READ_AFTER_WRITE", provider: "spotify", destinationPlaylistId: planned.destinationPlaylistId, checkedAt: new Date(Math.max(after.checkedAt, Date.parse(issuedAt))).toISOString(), observedProviderEntityIds: after.actualTrackIds, evidenceVersion: "spotapi-playlist-readback-v1-error-recovery" },
+          );
+          const written = { ...item, state: transitionTrackItem(item.state, "WRITTEN") };
+          this.database.transaction(() => {
+            saveReceipt(this.database, item, receipt, item.riskFlags.length > 0);
+            persistItem(this.database, written);
+            persistItem(this.database, { ...written, state: transitionTrackItem(written.state, "VERIFIED_PROVIDER", { receipt }) });
+            this.database.appendJournal({ transferId: transfer.id, sequence: journalSequence(this.database, transfer.id), stepKind: "API_ADD", stepKey, status: "COMPLETED", payload: { issuedAt, recoveredAfterError: code } });
+          });
+          return { completed: true, recoveredAfterError: true };
+        }
+      } catch { /* provider read-back unavailable */ }
+      const pending = { ...item, state: transitionTrackItem(item.state, "AWAITING_USER_RECONCILIATION"), riskFlags: [...new Set([...item.riskFlags, "AMBIGUOUS_API_RESULT", code])] };
+      const action = await this.issueReconciliationAction(transfer, pending, planned.destinationPlaylistId, issuedAt);
+      return { completed: false, action, error: code };
+    }
+  }
+
   private async completeApiWrite(transfer: TransferRecord, item: StoredItem, plan: ImmutableWritePlan) {
+    if (transfer.destinationProvider === "spotify") return this.completeSpotifyApiWrite(transfer, item, plan);
     const planned = findPlanItem(plan, item.id);
     if (!planned || !item.selectedTarget || !item.idempotencyKey) throw new Error("PLANNED_ITEM_NOT_FOUND");
     const target = item.selectedTarget.target;
@@ -1709,7 +1954,7 @@ export class TransferCoordinator {
   private async createNextApiDestination(transfer: TransferRecord): Promise<boolean> {
     const destination = destinationOf(transfer);
     const blueprint = destination.blueprint;
-    if (!blueprint || transfer.destinationProvider !== "youtube" || destination.forceGuided) return false;
+    if (!blueprint || !["youtube", "spotify"].includes(transfer.destinationProvider) || destination.forceGuided) return false;
     const unbound = blueprint.destinations.find((entry) => !entry.existingProviderPlaylistId && !destination.bindings[entry.destinationPlanKey]);
     if (!unbound) return false;
     const stepKey = `create:${unbound.destinationPlanKey}`;
@@ -1748,13 +1993,17 @@ export class TransferCoordinator {
       stepKind: "CREATE_PLAYLIST",
       stepKey,
       status: "RUNNING",
-      payload: { provider: "youtube", title: unbound.metadata.title, issuedAt, providerMutationMayHaveStarted: true },
+      payload: { provider: transfer.destinationProvider, title: unbound.metadata.title, issuedAt, providerMutationMayHaveStarted: true },
     });
-    const youtube = this.youtubeClient();
-    const privacy = unbound.metadata.privacy === "public" || unbound.metadata.privacy === "unlisted" ? unbound.metadata.privacy : "private";
     try {
       if (!this.renewLease(transfer.id)) throw new Error("TRANSFER_LEASE_LOST");
-      const created = await youtube.createPlaylist({ title: unbound.metadata.title, description: unbound.metadata.description, privacyStatus: privacy });
+      const created = transfer.destinationProvider === "spotify"
+        ? await this.spotifyClient().createPlaylist({ title: unbound.metadata.title, description: unbound.metadata.description, public: unbound.metadata.privacy === "public" })
+        : await this.youtubeClient().createPlaylist({
+            title: unbound.metadata.title,
+            description: unbound.metadata.description,
+            privacyStatus: unbound.metadata.privacy === "public" || unbound.metadata.privacy === "unlisted" ? unbound.metadata.privacy : "private",
+          });
       const bindings = { ...destination.bindings, [unbound.destinationPlanKey]: { providerPlaylistId: created.id, playlistUrl: created.url, title: unbound.metadata.title } };
       this.database.transaction(() => {
         this.saveTransfer({ ...transfer, destination: json({ ...destination, bindings }) });
@@ -1764,7 +2013,7 @@ export class TransferCoordinator {
           stepKind: "CREATE_PLAYLIST",
           stepKey,
           status: "COMPLETED",
-          payload: { provider: "youtube", destinationPlaylistId: created.id, playlistUrl: created.url, issuedAt },
+          payload: { provider: transfer.destinationProvider, destinationPlaylistId: created.id, playlistUrl: created.url, issuedAt },
         });
       });
       await this.prepareBlueprint(this.database.getTransfer(transfer.id)!);
@@ -1779,7 +2028,7 @@ export class TransferCoordinator {
           stepKind: "CREATE_PLAYLIST",
           stepKey,
           status: "AMBIGUOUS_REQUIRES_USER_BINDING",
-          payload: { provider: "youtube", title: unbound.metadata.title, issuedAt, error: code, blindRetrySuppressed: true },
+          payload: { provider: transfer.destinationProvider, title: unbound.metadata.title, issuedAt, error: code, blindRetrySuppressed: true },
           attempt: Number(previous?.attempt ?? 0) + 1,
         });
         this.saveTransfer(withLimitations(transfer, "AMBIGUOUS_DESTINATION_CREATE_REQUIRES_BINDING", code));
@@ -1859,6 +2108,20 @@ export class TransferCoordinator {
       if (!this.items(transferId).some((entry) => ACTIVE_ITEM_STATES.has(entry.state))) this.finish(refreshed);
       return this.view(transferId);
     });
+  }
+
+  async runAll(transferId: string) {
+    let view = this.view(transferId);
+    const terminal = new Set(["COMPLETED", "PARTIAL", "FAILED", "CANCELLED"]);
+    // Each iteration keeps the existing per-item journal/idempotency boundary;
+    // the single user action only removes repetitive button presses.
+    for (let index = 0; index < 10_000; index += 1) {
+      if (terminal.has(view.transfer.state)) return view;
+      const bindingNeedsUser = view.bindingNeeds.length > 0 && view.capabilities.strategy !== "api-with-guided-fallback";
+      if (view.pendingAction || bindingNeedsUser || view.items.some((item) => item.state === "NEEDS_REVIEW")) return view;
+      view = await this.runNext(transferId);
+    }
+    throw new Error("TRANSFER_AUTORUN_STEP_LIMIT");
   }
 
   async reconcile(transferId: string, input: { itemId: string; result: ReconciliationResult }) {
@@ -2120,7 +2383,11 @@ export class TransferCoordinator {
       externalGate,
       journal: this.database.listJournal(transferId).map((entry) => ({ sequence: entry.sequence, stepKind: entry.stepKind, status: entry.status, updatedAtMs: entry.updatedAtMs })),
       capabilities: {
-        strategy: transfer.destinationProvider === "youtube" && (() => { try { this.youtubeClient(); return true; } catch { return false; } })() ? "api-with-guided-fallback" : "guided",
+        strategy: transfer.destinationProvider === "youtube" && (() => { try { this.youtubeClient(); return true; } catch { return false; } })()
+          ? "api-with-guided-fallback"
+          : transfer.destinationProvider === "spotify" && (() => { try { this.spotifyClient(); return true; } catch { return false; } })()
+            ? "api-with-guided-fallback"
+            : "guided",
         domRead: false,
         uiAutomation: false,
         fullSideBySideComparison: false,

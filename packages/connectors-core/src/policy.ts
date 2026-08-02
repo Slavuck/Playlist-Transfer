@@ -2,12 +2,16 @@ import type { ConnectorCapabilities, Provider } from "./types";
 
 export type PolicyGateState = "allowed" | "blocked" | "unknown" | "not-applicable";
 
-export const POLICY_VERSION = "2026-07-29";
+export const POLICY_VERSION = "2026-08-02";
 
 export const policyGates = {
   spotifyGuidedTransfer: "allowed",
   spotifyOEmbedMetadata: "unknown",
-  spotifyCrossProviderAutoMatching: "blocked",
+  // Spotify's Developer Policy explicitly allows transferring a user's
+  // personal data or playlist metadata to another service. The API path still
+  // requires explicit OAuth consent and only operates on the user's playlists.
+  spotifyCrossProviderAutoMatching: "allowed",
+  spotifyPrivateApi: "unknown",
   spotifyDomRead: "unknown",
   spotifyUiWrite: "unknown",
   spotifyCompetitivePlayback: "blocked",
@@ -27,6 +31,11 @@ export const PROVIDER_POLICY_ACKNOWLEDGEMENT = "I_ACCEPT_PROVIDER_POLICIES";
 
 export function isYoutubeApiReleaseEnabled(): boolean {
   return process.env.PLAYLIST_TRANSFER_ENABLE_YOUTUBE_API === PROVIDER_POLICY_ACKNOWLEDGEMENT;
+}
+
+export function isSpotifyApiReleaseEnabled(): boolean {
+  return process.env.PLAYLIST_TRANSFER_ENABLE_SPOTAPI === PROVIDER_POLICY_ACKNOWLEDGEMENT
+    || process.env.PLAYLIST_TRANSFER_ENABLE_SPOTIFY_API === PROVIDER_POLICY_ACKNOWLEDGEMENT;
 }
 
 export function isProviderOEmbedEnabled(): boolean {
@@ -92,10 +101,38 @@ export const youtubeApiCapabilities: ConnectorCapabilities = {
   uiWrite: false,
 };
 
+export const spotifyApiCapabilities: ConnectorCapabilities = {
+  canReadOwned: true,
+  canReadCollaborative: false,
+  canWriteOwned: true,
+  canWriteCollaborative: false,
+  canCreate: true,
+  canBatchAdd: true,
+  batchSize: 100,
+  canPreserveOrder: true,
+  canSetCoverOnCreate: false,
+  canSetCoverAfterCreate: false,
+  canSeekToFraction: false,
+  canEmbedAlongsideCompetitor: false,
+  supportsISRC: false,
+  requiresWriteReauth: true,
+  domRead: false,
+  uiWrite: false,
+};
+
+export const spotifyApiLimitations = [
+  "SPOTAPI_PRIVATE_API_UNOFFICIAL",
+  "SPOTAPI_SESSION_COOKIE_EXPIRES",
+  "SPOTAPI_PLAYLIST_DESCRIPTION_AND_PRIVACY_NOT_SET_ON_CREATE",
+  "SPOTAPI_ISRC_NOT_RETURNED",
+  "SPOTIFY_PLAYBACK_NOT_USED",
+];
+
 export const providerLimitations: Record<Provider, string[]> = {
   spotify: [
     "GUIDED_USER_ATTESTATION_NOT_PROVIDER_OWNERSHIP",
-    "SPOTIFY_API_REQUIRES_NON_BASELINE_PREREQUISITES",
+    "SPOTAPI_CONNECTION_REQUIRED_FOR_AUTOMATION",
+    "SPOTAPI_PRIVATE_API_UNOFFICIAL",
     "SPOTIFY_SEEK_NOT_AVAILABLE_IN_ZERO_BUDGET_BASELINE",
     "COMPETITIVE_PLAYBACK_EXTERNAL_GATE",
     "SPOTIFY_OEMBED_AND_METADATA_ANALYSIS_POLICY_GATE",
@@ -126,5 +163,6 @@ export function selectConnectorStrategy(input: {
   apiIsFreeForThisUser: boolean;
 }): "api" | "guided" {
   if (input.provider === "youtube" && input.apiConfigured && input.apiIsFreeForThisUser) return "api";
+  if (input.provider === "spotify" && input.apiConfigured) return "api";
   return "guided";
 }

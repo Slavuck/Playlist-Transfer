@@ -69,7 +69,7 @@ export type GuidedAction = {
 export type ValidationResult = {
   ref: ProviderEntityRef;
   evidence: {
-    method: "URL_SYNTAX" | "OFFICIAL_OEMBED" | "OFFICIAL_API";
+    method: "URL_SYNTAX" | "OFFICIAL_OEMBED" | "OFFICIAL_API" | "PROVIDER_PRIVATE_API";
     checkedAt: number;
     providerReadBack: boolean;
     semanticEqualityProven: false;

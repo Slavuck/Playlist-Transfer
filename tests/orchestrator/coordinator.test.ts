@@ -8,6 +8,7 @@ import { TransferCoordinator } from "../../packages/orchestrator/src/coordinator
 import { buildSearchUrl, parseProviderUrl } from "../../packages/connectors-core/src/url-policy";
 import type { Provider, ProviderConnector } from "../../packages/connectors-core/src/types";
 import type { YoutubeApiClient } from "../../packages/connectors/youtube/src/client";
+import type { SpotifyApiClient } from "../../packages/connectors/spotify/src/client";
 
 function database() {
   return new LocalDatabase(mkdtempSync(path.join(tmpdir(), "playlist-transfer-orchestrator-")));
@@ -100,6 +101,129 @@ function coordinator(db: LocalDatabase) {
     youtubeClient: () => { throw new Error("YOUTUBE_API_NOT_CONNECTED"); },
   });
 }
+
+function seedYoutubeForSpotifyTransfer(db: LocalDatabase) {
+  db.saveConnection({
+    provider: "youtube",
+    accountLabel: "youtube-owner",
+    strategy: "api",
+    status: "CONNECTED",
+    scopes: ["youtube.readonly"],
+    capabilities: { canReadOwned: true, domRead: false, uiWrite: false },
+  });
+  db.saveConnection({
+    provider: "spotify",
+    accountLabel: "spotify-owner",
+    strategy: "api",
+    status: "CONNECTED",
+    scopes: ["playlist-read-private", "playlist-modify-private"],
+    capabilities: { canReadOwned: true, canWriteOwned: true, domRead: false, uiWrite: false },
+  });
+  return db.savePlaylistSnapshot({
+    provider: "youtube",
+    providerPlaylistId: "PLabcdefghijk",
+    providerUrl: "https://www.youtube.com/playlist?list=PLabcdefghijk",
+    title: "Codex source",
+    ownerLabel: "youtube-owner",
+    eligibility: "PROVIDER_VERIFIED_OWNED",
+    eligibilityEvidence: { method: "OFFICIAL_API" },
+    partial: false,
+    sourceVersion: "youtube-fixture-v1",
+    snapshot: {
+      tracks: [{
+        position: 0,
+        titleRaw: "Smells Like Teen Spirit",
+        artistRaw: "Nirvana - Topic",
+        durationMs: 301_000,
+        providerEntityId: "ljUtuoFt-8c",
+        videoId: "ljUtuoFt-8c",
+        providerUriOrUrl: "https://www.youtube.com/watch?v=ljUtuoFt-8c",
+        attributionUrl: "https://www.youtube.com/watch?v=ljUtuoFt-8c",
+      }],
+    },
+  });
+}
+
+test("YouTube to Spotify exact match is selected and written without per-track review", async () => {
+  const db = database();
+  const sourceId = seedYoutubeForSpotifyTransfer(db);
+  const playlistId = "P".repeat(22);
+  const trackId = "T".repeat(22);
+  const actualTrackIds: string[] = [];
+  let appendCalls = 0;
+  const spotify = {
+    async listEligiblePlaylists() {
+      return [{
+        id: playlistId,
+        title: "Codex",
+        description: "Playlist for Codex",
+        itemCount: actualTrackIds.length,
+        privacyStatus: "private",
+        ownerId: "spotify-owner",
+        ownerLabel: "spotify-owner",
+        snapshotId: "snapshot-before",
+        url: `https://open.spotify.com/playlist/${playlistId}`,
+        ownership: "API_OWNED",
+      }];
+    },
+    async verifyPlaylist() {
+      return { verified: true, actualTrackIds: [...actualTrackIds], checkedAt: Date.now() };
+    },
+    async searchCandidates() {
+      return [{
+        provider: "spotify",
+        providerEntityId: trackId,
+        providerUriOrUrl: `https://open.spotify.com/track/${trackId}`,
+        titleRaw: "Smells Like Teen Spirit",
+        artistRaw: "Nirvana",
+        durationMs: 301_000,
+        isrc: "USGF19942501",
+        availability: "AVAILABLE",
+        searchRank: 0,
+        validationStatus: "PROVIDER_VALIDATED",
+      }];
+    },
+    async appendItem(destinationPlaylistId: string, targetTrackId: string) {
+      assert.equal(destinationPlaylistId, playlistId);
+      assert.equal(targetTrackId, trackId);
+      appendCalls += 1;
+      actualTrackIds.push(targetTrackId);
+      return { snapshotId: "snapshot-after" };
+    },
+  } as unknown as SpotifyApiClient;
+  const app = new TransferCoordinator({
+    database: db,
+    guidedConnector: guided,
+    youtubeClient: () => { throw new Error("YOUTUBE_API_NOT_NEEDED"); },
+    spotifyClient: () => spotify,
+  });
+  const transfer = app.create({
+    sourceProvider: "youtube",
+    destinationProvider: "spotify",
+    mode: "APPEND_EXISTING",
+    selectedPlaylistIds: [sourceId],
+    destination: {
+      title: "Codex",
+      providerPlaylistId: playlistId,
+      ownershipAttested: true,
+      editControlAttested: true,
+    },
+  });
+
+  let view = await app.start(transfer.id) as ReturnType<TransferCoordinator["view"]>;
+  assert.equal(view.transfer.state, "READY_TO_WRITE");
+  assert.equal(view.items[0]?.state, "WRITE_PENDING");
+  assert.equal(view.items[0]?.selection?.selectionKind, "MATCHED_AUTO");
+  assert.equal(view.items[0]?.selection?.writeStrategy, "API");
+  assert.equal(view.items.some((item) => item.state === "NEEDS_REVIEW"), false);
+
+  view = await app.runAll(transfer.id) as ReturnType<TransferCoordinator["view"]>;
+  assert.equal(view.transfer.state, "COMPLETED");
+  assert.equal(appendCalls, 1);
+  assert.equal(view.report.counts.VERIFIED_PROVIDER, 1);
+  assert.equal(view.pendingAction, undefined);
+  db.destroyFiles();
+});
 
 test("guided transfer persists one action and reports manual assurance separately", async () => {
   const db = database();

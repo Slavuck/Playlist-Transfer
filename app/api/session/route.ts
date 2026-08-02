@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { apiError } from "../_shared";
 import {
   assertLoopbackRequest,
-  createLocalSession,
   publicSession,
   rateLimit,
+  resumeOrCreateLocalSession,
   sessionCookie,
 } from "../../../packages/security/src/loopback-session";
 import { getLocalDatabase } from "../../../packages/storage-local/src/database";
@@ -16,7 +16,7 @@ export function GET(request: Request) {
     assertLoopbackRequest(request);
     rateLimit("session", 30, 60_000);
     getLocalDatabase().cleanupExpired();
-    const session = createLocalSession();
+    const { session } = resumeOrCreateLocalSession(request);
     const response = NextResponse.json({ ok: true, data: publicSession(session) });
     response.headers.set("Set-Cookie", sessionCookie(session));
     response.headers.set("Cache-Control", "no-store");

@@ -31,13 +31,18 @@ export async function GET(request: Request) {
     if (!isYoutubeApiReleaseEnabled()) throw new Error("YOUTUBE_API_POLICY_GATE_CLOSED");
     const vault = getLocalVault();
     if (!vault.isUnlocked) throw new Error("VAULT_LOCKED");
+    const configuredClientId = process.env.PLAYLIST_TRANSFER_YOUTUBE_CLIENT_ID?.trim();
+    const clientSecret = state.clientId === configuredClientId
+      ? process.env.PLAYLIST_TRANSFER_YOUTUBE_CLIENT_SECRET?.trim()
+      : undefined;
     const tokens = await exchangeYoutubeCode({
       clientId: state.clientId,
+      ...(clientSecret ? { clientSecret } : {}),
       redirectUri: state.redirectUri,
       code,
       verifier: state.verifier,
     });
-    const credentials: YoutubeCredentials = { ...tokens, clientId: state.clientId };
+    const credentials: YoutubeCredentials = { ...tokens, clientId: state.clientId, ...(clientSecret ? { clientSecret } : {}) };
     const client = new YoutubeApiClient(credentials);
     const account = await client.getCurrentAccount();
     credentials.channelId = account.channelId;

@@ -10,6 +10,7 @@ import { displayProvider, type PlaylistSnapshot, type Provider, type TransferMod
 const providers: Provider[] = ["spotify", "soundcloud", "youtube"];
 const steps = ["SOURCE", "DESTINATION", "PRECISION", "CONFIRM"] as const;
 type YoutubePlaylist = { id: string; title: string; itemCount: number; privacyStatus: string; ownership: string };
+type SpotifyPlaylist = { id: string; title: string; itemCount: number; privacyStatus: string; ownership: string; url: string };
 
 export function TransferWizardPage() {
   const { language } = useLanguage();
@@ -39,6 +40,9 @@ export function TransferWizardPage() {
   const [youtubeDestinations, setYoutubeDestinations] = useState<YoutubePlaylist[]>([]);
   const [youtubeDestinationId, setYoutubeDestinationId] = useState("");
   const [youtubeLibraryStatus, setYoutubeLibraryStatus] = useState("LOADING");
+  const [spotifyDestinations, setSpotifyDestinations] = useState<SpotifyPlaylist[]>([]);
+  const [spotifyDestinationId, setSpotifyDestinationId] = useState("");
+  const [spotifyLibraryStatus, setSpotifyLibraryStatus] = useState("LOADING");
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -54,6 +58,13 @@ export function TransferWizardPage() {
       setYoutubeDestinations([]);
       setYoutubeLibraryStatus(reason instanceof Error ? reason.message : "YOUTUBE_API_NOT_CONNECTED");
     });
+    void api<SpotifyPlaylist[]>("/api/spotify/playlists").then((items) => {
+      setSpotifyDestinations(items);
+      setSpotifyLibraryStatus("CONNECTED");
+    }).catch((reason: unknown) => {
+      setSpotifyDestinations([]);
+      setSpotifyLibraryStatus(reason instanceof Error ? reason.message : "SPOTAPI_NOT_CONNECTED");
+    });
   }, [api]);
 
   const selected = useMemo(() => snapshots.filter((snapshot) => selectedIds.includes(snapshot.id)), [selectedIds, snapshots]);
@@ -63,13 +74,30 @@ export function TransferWizardPage() {
   const itemCount = selected.reduce((total, snapshot) => total + snapshot.itemCount, 0);
   const hasPartial = selected.some((snapshot) => snapshot.partial);
   const selectedYoutubeDestination = youtubeDestinations.find((item) => item.id === youtubeDestinationId);
+  const selectedSpotifyDestination = spotifyDestinations.find((item) => item.id === spotifyDestinationId);
+  const selectedApiDestination = selectedYoutubeDestination ?? selectedSpotifyDestination;
 
   function resetExistingDestination() {
     setYoutubeDestinationId("");
+    setSpotifyDestinationId("");
     setDestinationTitle("");
     setDestinationUrl("");
     setDestinationAttested(false);
     setExistingItemCount("0");
+    setExistingItemIdsText("");
+  }
+
+  function chooseSpotifyDestination(id: string) {
+    setSpotifyDestinationId(id);
+    const playlist = spotifyDestinations.find((item) => item.id === id);
+    if (!playlist) {
+      resetExistingDestination();
+      return;
+    }
+    setDestinationTitle(playlist.title);
+    setDestinationUrl(playlist.url);
+    setDestinationAttested(true);
+    setExistingItemCount(String(playlist.itemCount));
     setExistingItemIdsText("");
   }
 
@@ -228,13 +256,17 @@ export function TransferWizardPage() {
             {effectiveDestinationProvider === "youtube" && mode === "APPEND_EXISTING" && youtubeDestinations.length === 0 && <p className="notice warning">{ru ? `Библиотека YouTube недоступна (${youtubeLibraryStatus}). Можно использовать честный guided fallback ниже или подключить Google.` : `The YouTube library is unavailable (${youtubeLibraryStatus}). Use the honest guided fallback below or connect Google.`} <Link href="/connections#youtube-direct">{ru ? "Подключить" : "Connect"}</Link></p>}
             {effectiveDestinationProvider === "youtube" && mode !== "APPEND_EXISTING" && youtubeLibraryStatus === "CONNECTED" && <p className="notice success">{ru ? "Новый YouTube-плейлист будет создан в подключённом аккаунте официальным API после preflight и подтверждения записи." : "A new YouTube playlist will be created in the connected account through the official API after preflight and write confirmation."}</p>}
             {effectiveDestinationProvider === "youtube" && mode !== "APPEND_EXISTING" && youtubeLibraryStatus !== "CONNECTED" && <p className="notice warning">{ru ? `Google API сейчас недоступен (${youtubeLibraryStatus}). Перенос не блокируется: после review приложение попросит вас создать новый пустой YouTube-плейлист на официальной странице и вставить его share URL.` : `Google API is currently unavailable (${youtubeLibraryStatus}). The transfer is not blocked: after review, the app will ask you to create a new empty YouTube playlist on the official page and paste its share URL.`}</p>}
+            {effectiveDestinationProvider === "spotify" && mode === "APPEND_EXISTING" && spotifyDestinations.length > 0 && <label className="field-label"><span>{ru ? "Мой Spotify-плейлист назначения" : "My Spotify destination playlist"}</span><select value={spotifyDestinationId} onChange={(event) => chooseSpotifyDestination(event.target.value)} required><option value="">{ru ? "Выберите плейлист из аккаунта" : "Select a playlist from your account"}</option>{spotifyDestinations.map((playlist) => <option value={playlist.id} key={playlist.id}>{playlist.title} · {playlist.itemCount} · {playlist.privacyStatus}</option>)}</select><small>{ru ? "Владелец, право редактирования и текущее содержимое проверяются SpotAPI перед записью." : "Ownership, edit access, and current contents are checked through SpotAPI before writing."}</small></label>}
+            {effectiveDestinationProvider === "spotify" && mode === "APPEND_EXISTING" && spotifyDestinations.length === 0 && <p className="notice warning">{ru ? `SpotAPI недоступен (${spotifyLibraryStatus}). Подключите Spotify, чтобы выбирать плейлист без URL и ручных подтверждений.` : `SpotAPI is unavailable (${spotifyLibraryStatus}). Connect Spotify to select a playlist without URLs or manual attestations.`} <Link href="/connections#spotify-direct">{ru ? "Подключить" : "Connect"}</Link></p>}
+            {effectiveDestinationProvider === "spotify" && mode !== "APPEND_EXISTING" && spotifyLibraryStatus === "CONNECTED" && <p className="notice success">{ru ? "Новый Spotify-плейлист будет создан через SpotAPI; точные совпадения добавятся автоматически." : "A new Spotify playlist will be created through SpotAPI and confident matches will be added automatically."}</p>}
             {effectiveDestinationProvider === "soundcloud" && <p className="notice warning"><strong>MANUAL ONLY · SC-BASE-LEGAL:</strong> {ru ? "приложение не выполняет API/DOM-запись. После review оно откроет официальный SoundCloud и выдаст последовательные действия, которые выполняете и подтверждаете вы." : "the app performs no API/DOM writes. After review it opens official SoundCloud and emits sequential actions that you perform and confirm."}</p>}
-            {effectiveDestinationProvider === "spotify" && <p className="notice">{ru ? "Spotify destination работает как user-operated guided flow: приложение откроет официальный Web Player по одному действию и сохранит только вашу отдельную сверку." : "A Spotify destination uses a user-operated guided flow: the app opens the official Web Player one action at a time and stores only your explicit reconciliation."}</p>}
+            {effectiveDestinationProvider === "spotify" && spotifyLibraryStatus !== "CONNECTED" && <p className="notice">{ru ? "Без SpotAPI останется ручной fallback. После подключения поиск, сверение и запись выполняются локальным SpotAPI." : "Without SpotAPI, only the manual fallback remains. Once connected, search, matching, and writes use local SpotAPI."}</p>}
             {selectedYoutubeDestination && <p className="notice success"><strong>API_OWNED:</strong> {selectedYoutubeDestination.title} · {selectedYoutubeDestination.itemCount} {ru ? "элементов" : "items"}</p>}
-            {mode !== "SEPARATE_COPY" && !selectedYoutubeDestination && <div className="form-row"><label className="field-label"><span>{ru ? "Название назначения" : "Destination title"}</span><input value={destinationTitle} onChange={(event) => setDestinationTitle(event.target.value)} maxLength={300} required /></label>{mode === "APPEND_EXISTING" && <label className="field-label"><span>Playlist share URL</span><input type="url" value={destinationUrl} onChange={(event) => setDestinationUrl(event.target.value)} required placeholder="https://…" /></label>}</div>}
+            {selectedSpotifyDestination && <p className="notice success"><strong>API_OWNED:</strong> {selectedSpotifyDestination.title} · {selectedSpotifyDestination.itemCount} {ru ? "элементов" : "items"}</p>}
+            {mode !== "SEPARATE_COPY" && !selectedApiDestination && <div className="form-row"><label className="field-label"><span>{ru ? "Название назначения" : "Destination title"}</span><input value={destinationTitle} onChange={(event) => setDestinationTitle(event.target.value)} maxLength={300} required /></label>{mode === "APPEND_EXISTING" && <label className="field-label"><span>Playlist share URL</span><input type="url" value={destinationUrl} onChange={(event) => setDestinationUrl(event.target.value)} required placeholder="https://…" /></label>}</div>}
             {mode === "MERGE_NEW" && <label className="field-label"><span>{ru ? "Описание" : "Description"}</span><textarea value={destinationDescription} onChange={(event) => setDestinationDescription(event.target.value)} maxLength={5000} /></label>}
-            {mode === "APPEND_EXISTING" && !selectedYoutubeDestination && <><label className="checkbox-row"><input type="checkbox" checked={destinationAttested} onChange={(event) => setDestinationAttested(event.target.checked)} /><span>{ru ? "Я вижу owner и edit/manage control на официальной странице. Это USER_ATTESTED_OWNED, если API не подтвердит права." : "I can see the owner and edit/manage control on the official page. This is USER_ATTESTED_OWNED unless the API verifies access."}</span></label><p className="notice warning">{ru ? "YouTube non-owned collaborative destination не входит в гарантированный baseline и не будет показан как provider-verified." : "A non-owned collaborative YouTube destination is outside the guaranteed baseline and will not be shown as provider-verified."}</p></>}
-            {mode === "APPEND_EXISTING" && !selectedYoutubeDestination && <div className="grid two"><label className="field-label"><span>{ru ? "Текущее число элементов" : "Current destination item count"}</span><input type="number" min="0" step="1" value={existingItemCount} onChange={(event) => setExistingItemCount(event.target.value)} required /></label><label className="field-label"><span>{ru ? "Видимые provider IDs (необязательно)" : "Visible provider IDs (optional)"}</span><textarea value={existingItemIdsText} onChange={(event) => setExistingItemIdsText(event.target.value)} placeholder={ru ? "По одному ID на строку" : "One provider ID per line"} /><small>{ru ? "Для API-owned YouTube список перечитывается официальным API. В guided-режиме неполный список помечается ограничением." : "For API-owned YouTube this is refreshed through the official API. In guided mode, an incomplete list is recorded as a limitation."}</small></label></div>}
+            {mode === "APPEND_EXISTING" && !selectedApiDestination && <><label className="checkbox-row"><input type="checkbox" checked={destinationAttested} onChange={(event) => setDestinationAttested(event.target.checked)} /><span>{ru ? "Я вижу owner и edit/manage control на официальной странице. Это USER_ATTESTED_OWNED, если API не подтвердит права." : "I can see the owner and edit/manage control on the official page. This is USER_ATTESTED_OWNED unless the API verifies access."}</span></label><p className="notice warning">{ru ? "Ручное подтверждение не заменяет API-проверку владельца." : "A manual attestation does not replace API ownership verification."}</p></>}
+            {mode === "APPEND_EXISTING" && !selectedApiDestination && <div className="grid two"><label className="field-label"><span>{ru ? "Текущее число элементов" : "Current destination item count"}</span><input type="number" min="0" step="1" value={existingItemCount} onChange={(event) => setExistingItemCount(event.target.value)} required /></label><label className="field-label"><span>{ru ? "Видимые provider IDs (необязательно)" : "Visible provider IDs (optional)"}</span><textarea value={existingItemIdsText} onChange={(event) => setExistingItemIdsText(event.target.value)} placeholder={ru ? "По одному ID на строку" : "One provider ID per line"} /><small>{ru ? "Для API-owned плейлиста список перечитывается официальным API." : "For API-owned playlists, the list is refreshed through the official API."}</small></label></div>}
           </div>
         )}
 

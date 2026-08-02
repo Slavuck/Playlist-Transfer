@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+/Spotify session cookies.txt
 
 # debug
 npm-debug.log*
@@ -44,3 +45,5 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+.env*

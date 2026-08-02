@@ -6,11 +6,12 @@
 
 - Windows, macOS или Linux с локальным loopback networking.
 - Node.js `>=22.13.0` и npm.
+- Python 3.10+ с установленным `spotapi` для прямого Spotify-коннектора.
 - Chrome или Edge для обязательного guided MV3 shell.
 - Интернет и обычные бесплатные provider-аккаунты для реальных действий.
 - Свободный TCP-порт `3210` на `127.0.0.1`.
 
-Spotify Premium и SoundCloud Artist Pro не нужны и не должны становиться prerequisite. Поэтому бесплатная сборка не выдаёт Spotify/SoundCloud identity за прямой API-доступ: для них основной массовый fallback — один локальный export-файл. Google Cloud project нужен только для опционального официального YouTube API-пути; bulk/guided YouTube workflow работает без него.
+Spotify Premium и SoundCloud Artist Pro не нужны. Spotify работает через локальный SpotAPI и текущую web-сессию пользователя; SoundCloud остаётся manual-only. Google Cloud project нужен только для опционального официального YouTube API-пути.
 
 ## 2. Чистая установка и проверка
 
@@ -38,11 +39,14 @@ Baseline понимает следующие переменные:
 | `PLAYLIST_TRANSFER_DATA_DIR` | `<project>/.data` | Каталог SQLite/WAL. Используйте локальный приватный каталог, не сетевой share и не синхронизируемую облачную папку. |
 | `PLAYLIST_TRANSFER_ENABLE_YOUTUBE_API` | `disabled` | Fail-closed gate для собственного YouTube Data API/OAuth. Единственное включающее значение — точная строка `I_ACCEPT_PROVIDER_POLICIES`. |
 | `PLAYLIST_TRANSFER_YOUTUBE_CLIENT_ID` | пусто | Необязательный Desktop OAuth Client ID, один раз заданный владельцем сборки. Тогда пользователю доступна простая кнопка «Войти через Google» без ручного Client ID. Это публичный идентификатор, не secret. |
+| `PLAYLIST_TRANSFER_YOUTUBE_CLIENT_SECRET` | пусто | Необязательный generated secret из JSON конкретного Desktop client. Добавляйте только если Google token endpoint требует его для этого клиента; храните исключительно в `.env.local`. |
+| `PLAYLIST_TRANSFER_ENABLE_SPOTAPI` | `disabled` | Fail-closed gate для неофициального локального Spotify-коннектора. Единственное включающее значение — `I_ACCEPT_PROVIDER_POLICIES`. |
+| `PLAYLIST_TRANSFER_SPOTAPI_PYTHON` | auto-discovery | Необязательный абсолютный путь к Python с установленным `spotapi`, если обычное обнаружение не сработало. |
 | `PLAYLIST_TRANSFER_ENABLE_PROVIDER_OEMBED` | `disabled` | Fail-closed gate для исходящих official oEmbed-запросов всех providers. Единственное включающее значение — точная строка `I_ACCEPT_PROVIDER_POLICIES`. |
 
 Значения `enabled`, `true`, `1`, другая раскладка или пробелы не открывают gates. `I_ACCEPT_PROVIDER_POLICIES` означает только явное подтверждение локального оператора: он сверил актуальные правила, подготовил требуемые disclosure/contact данные и принимает ответственность за свой use case. Приложение не превращает эту строку в доказательство юридического разрешения, завершённого compliance audit или закрытого `SC-BASE-LEGAL`.
 
-В шаблоне нет secret values. Desktop Client ID не является client secret. Если `PLAYLIST_TRANSFER_YOUTUBE_CLIENT_ID` задан владельцем сборки, пользователь просто нажимает «Войти через Google»; после подключения Client ID хранится как часть зашифрованного локального connection record. Client secret для Desktop PKCE flow не используется. Для guided/manual или архивного запуска оставьте provider-флаги в `disabled`.
+В шаблоне нет заполненных secret values. Desktop Client ID не является client secret. Если `PLAYLIST_TRANSFER_YOUTUBE_CLIENT_ID` задан владельцем сборки, пользователь просто нажимает «Войти через Google». Некоторые новые Desktop clients возвращают generated secret и требуют его на token endpoint даже при PKCE; в таком случае задайте `PLAYLIST_TRANSFER_YOUTUBE_CLIENT_SECRET` только в `.env.local`. После подключения оба значения хранятся внутри зашифрованного connection record. Для guided/manual или архивного запуска оставьте provider-флаги в `disabled`.
 
 ## 3. Запуск
 
@@ -81,14 +85,15 @@ Server должен оставаться привязан к literal loopback. �
 
 ## 5. Подключение сервисов
 
-### Spotify — guided baseline
+### Spotify — локальный SpotAPI
 
-1. Войдите в Spotify на официальном сайте самостоятельно.
-2. В приложении выберите Spotify guided connection и подтвердите, что будете работать только со своим или реально доступным для записи плейлистом.
-3. Дополнительный архивный вариант: нажмите в приложении ссылку **Запросить Spotify export**, в Account Privacy запросите Account data, скачайте полученный ZIP и загрузите его целиком на странице **Плейлисты**. Поддерживаются также отдельные JSON, CSV/TSV, M3U/M3U8 и TXT. Spotify JSON может содержать `playlists[]`, `items[]`/`tracks[]`, `trackUri`/`track_url`; `spotify:track:…` преобразуется локально. Порядок и повторы сохраняются, до 10 000 треков импортируются одним действием.
-4. Укажите один точный `https://open.spotify.com/playlist/...` share URL всего плейлиста и подтвердите ownership/edit control. URL каждого трека вручную вводить не нужно. По умолчанию app проверяет только синтаксис и официальный origin URL. Official oEmbed read-back возможен лишь после точного `PLAYLIST_TRANSFER_ENABLE_PROVIDER_OEMBED=I_ACCEPT_PROVIDER_POLICIES`; даже тогда он не подтверждает ownership или write access.
+1. Установите SpotAPI: `python -m pip install spotapi`. Для версии 1.2.8 также могут понадобиться `pymongo` и `redis`, потому что пакет импортирует их при старте.
+2. Задайте `PLAYLIST_TRANSFER_ENABLE_SPOTAPI=I_ACCEPT_PROVIDER_POLICIES` и при необходимости `PLAYLIST_TRANSFER_SPOTAPI_PYTHON` в `.env.local`, затем перезапустите приложение.
+3. Войдите в `https://open.spotify.com`. В DevTools откройте Application → Cookies → `https://open.spotify.com` и скопируйте `sp_dc` и, если есть, `sp_key` в форме `sp_dc=…; sp_key=…`.
+4. В **Подключениях** вставьте cookie header и подтвердите использование собственного аккаунта. Приложение проверит сессию через SpotAPI, отбросит все cookies кроме `sp_dc`, `sp_key`, `sp_t` и зашифрует их local vault.
+5. В **Плейлистах** выберите owned Spotify playlist и синхронизируйте snapshot. При переносе SpotAPI ищет точные треки, создаёт новый playlist либо пишет в выбранный existing playlist и делает read-after-write.
 
-Baseline не использует Spotify Web API, Web Playback SDK, DOM reading или auto-click. Актуальный Web API Development Mode требует Premium у владельца app и allowlist пользователей, поэтому он не может быть обязательной частью zero-budget baseline. Сохранённый профиль имеет статус `IDENTITY SAVED`, ownership import-а — `USER_ATTESTED_OWNED`, а завершённое ручное добавление — `USER_CONFIRMED_MANUAL`.
+SpotAPI не требует Spotify Premium, Client ID или developer allowlist, но использует неофициальные private endpoints. Сессия может истечь, а изменения Spotify могут сломать коннектор. Тогда connection получает `REAUTH_REQUIRED`; вставьте свежие cookies. Пароль Spotify приложение не запрашивает, cookies автоматически из браузера не извлекает, DOM и auto-click не использует. Архивный и guided fallback остаются доступны.
 
 ### SoundCloud — внешний gate
 
@@ -110,8 +115,8 @@ YouTube Music — только пользовательское название
 2. Создайте один собственный Google Cloud project.
 3. Включите **YouTube Data API v3**.
 4. Настройте OAuth consent screen для использования этой сборки.
-5. Создайте OAuth Client ID типа **Desktop app**. Client secret приложению не нужен.
-6. Один раз задайте `PLAYLIST_TRANSFER_YOUTUBE_CLIENT_ID=<id>.apps.googleusercontent.com` в `.env.local` и перезапустите приложение. Пользователь теперь нажимает только **Войти через Google**. Ручное поле Client ID находится в раскрываемом разделе «Для разработчика» и не является обычным пользовательским сценарием.
+5. Создайте OAuth Client ID типа **Desktop app** и сразу сохраните скачанный JSON. PKCE остаётся обязательным; если Google выдал generated client secret и token endpoint требует его, не публикуйте это значение.
+6. Один раз задайте `PLAYLIST_TRANSFER_YOUTUBE_CLIENT_ID=<id>.apps.googleusercontent.com` в `.env.local`. При необходимости также задайте `PLAYLIST_TRANSFER_YOUTUBE_CLIENT_SECRET=<value from downloaded JSON>`, затем перезапустите приложение. Пользователь теперь нажимает только **Войти через Google**. Ручное поле Client ID находится в раскрываемом разделе «Для разработчика» и не является обычным пользовательским сценарием.
 7. Разрешите redirect на `http://127.0.0.1:3210/api/oauth/youtube/callback`. Flow использует Authorization Code + PKCE и одноразовый state.
 8. Проверьте выбранный YouTube channel: Google account может управлять несколькими channel-ами.
 
@@ -119,7 +124,7 @@ YouTube Music — только пользовательское название
 
 Read-only flow запрашивает `youtube.readonly`; запись требует `youtube.force-ssl`, потому что Google не предоставляет playlist-only write scope. Приложение использует write scope только для playlist operations. Проект в статусе OAuth Testing может требовать повторной авторизации, а refresh token external test user может истечь примерно через семь дней. При `invalid_grant`, отсутствии refresh token или HTTP 401 connection переводится в `REAUTH_REQUIRED`: API mutation не повторяется вслепую, а пользователь заново проходит полный OAuth либо продолжает guided/manual.
 
-Quota ledger ведёт отдельные локальные buckets: `search` (модельный предел 100 вызовов) и `general` (10 000 units). Период определяется календарной датой `America/Los_Angeles`, то есть сбрасывается по Pacific time с учётом PST/PDT, а не по часовому поясу компьютера. Search, paginated reads, создание playlist и каждый insert оцениваются раздельно; UI/preflight не должен выдавать локальную оценку за гарантию доступной provider quota. Ошибки `YOUTUBE_SEARCH_QUOTA_WAIT`, `YOUTUBE_GENERAL_QUOTA_WAIT` и `YOUTUBE_QUOTA_WAIT` переводят шаг в ожидание Pacific reset или manual watch-URL selection. Запрещены project rotation, scraping и DOM/auto-click. Публичный Client ID может быть встроен владельцем конкретной release-сборки; client secret и удалённый token broker не поставляются.
+Quota ledger ведёт отдельные локальные buckets: `search` (модельный предел 100 вызовов) и `general` (10 000 units). Период определяется календарной датой `America/Los_Angeles`, то есть сбрасывается по Pacific time с учётом PST/PDT, а не по часовому поясу компьютера. Search, paginated reads, создание playlist и каждый insert оцениваются раздельно; UI/preflight не должен выдавать локальную оценку за гарантию доступной provider quota. Ошибки `YOUTUBE_SEARCH_QUOTA_WAIT`, `YOUTUBE_GENERAL_QUOTA_WAIT` и `YOUTUBE_QUOTA_WAIT` переводят шаг в ожидание Pacific reset или manual watch-URL selection. Запрещены project rotation, scraping и DOM/auto-click. Публичный Client ID может быть встроен владельцем конкретной release-сборки; generated client secret конкретного Desktop client остаётся только в `.env.local` и зашифрованном connection record, удалённый token broker не поставляется.
 
 ## 6. Сборка и установка MV3
 

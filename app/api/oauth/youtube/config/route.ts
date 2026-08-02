@@ -10,6 +10,7 @@ export function GET(request: Request) {
     const configuredClientId = process.env.PLAYLIST_TRANSFER_YOUTUBE_CLIENT_ID?.trim() ?? "";
     return apiOk({
       maintainerClientConfigured: clientIdPattern.test(configuredClientId),
+      clientSecretConfigured: Boolean(process.env.PLAYLIST_TRANSFER_YOUTUBE_CLIENT_SECRET?.trim()),
       policyGateEnabled: isYoutubeApiReleaseEnabled(),
     });
   } catch (error) {

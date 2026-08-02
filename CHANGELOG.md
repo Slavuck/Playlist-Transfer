@@ -2,6 +2,19 @@
 
 Все заметные изменения Playlist-Transfer фиксируются в этом файле.
 
+## [Unreleased] — SpotAPI
+
+- Vercel теперь собирает полноценное Next.js приложение с официальным OAuth Spotify/Google, а не прежнюю статическую папку `website`;
+- hosted-профиль хранит per-user OAuth tokens в зашифрованных HttpOnly-cookie без общей базы аккаунтов и не принимает Spotify session cookies;
+- добавлен двунаправленный Spotify ↔ YouTube Music workflow: новый или существующий destination, явный review YouTube-видео и provider read-after-write verification;
+- production OAuth callbacks настроены отдельно от literal-loopback local-профиля; SoundCloud в hosted release остаётся отключённым;
+
+- Spotify OAuth/Web API заменён локальным мостом к установленному SpotAPI 1.2.8;
+- добавлены поиск, чтение библиотеки, создание плейлистов, запись треков и read-after-write проверка через SpotAPI;
+- Spotify session cookies принимаются только локальным приложением, фильтруются и хранятся в зашифрованном vault; значения не попадают в argv, журналы или ответы API;
+- интерфейс подключения и документация описывают неофициальный статус SpotAPI, истечение сессии и повторную авторизацию;
+- полный release-gate проходит: 270 тестов приложения, 24 теста расширения, local production build и hosted production build.
+
 ## [1.0.1] — 2026-07-29
 
 Корректирующий guided-baseline релиз:

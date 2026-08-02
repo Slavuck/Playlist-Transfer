@@ -11,6 +11,23 @@ export type YoutubeTokenSet = {
   tokenType: "Bearer";
 };
 
+export function mapYoutubeTokenError(body: Record<string, unknown>, status: number): string {
+  const providerCode = typeof body.error === "string" ? body.error : String(status);
+  const description = typeof body.error_description === "string" ? body.error_description : "";
+  if (providerCode === "invalid_request" && /client[_ ]secret/i.test(description)) {
+    if (/(?:missing|required|must (?:be )?(?:provided|set|included)).*client[_ ]secret|client[_ ]secret.*(?:missing|required|must)/i.test(description)) {
+      return "YOUTUBE_OAUTH_CLIENT_SECRET_REQUIRED";
+    }
+    if (/client[_ ]secret.*(?:not supported|not allowed|unexpected|must not|should not)/i.test(description)) {
+      return "YOUTUBE_OAUTH_CLIENT_SECRET_REJECTED";
+    }
+    return "YOUTUBE_OAUTH_CLIENT_SECRET_CONFIGURATION_INVALID";
+  }
+  if (/redirect[_ ]uri/i.test(description)) return "YOUTUBE_OAUTH_REDIRECT_URI_INVALID";
+  if (/code[_ ](?:verifier|challenge)|pkce/i.test(description)) return "YOUTUBE_OAUTH_PKCE_INVALID";
+  return `YOUTUBE_OAUTH_${providerCode}`;
+}
+
 function randomBase64Url(bytes: number): string {
   return randomBytes(bytes).toString("base64url");
 }
@@ -46,6 +63,7 @@ function validateLoopbackRedirect(redirectUri: string) {
 
 export async function exchangeYoutubeCode(input: {
   clientId: string;
+  clientSecret?: string;
   redirectUri: string;
   code: string;
   verifier: string;
@@ -58,6 +76,7 @@ export async function exchangeYoutubeCode(input: {
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({
       client_id: input.clientId,
+      ...(input.clientSecret ? { client_secret: input.clientSecret } : {}),
       redirect_uri: input.redirectUri,
       code: input.code,
       code_verifier: input.verifier,
@@ -67,7 +86,7 @@ export async function exchangeYoutubeCode(input: {
     signal: AbortSignal.timeout(10_000),
   });
   const body = (await response.json()) as Record<string, unknown>;
-  if (!response.ok || typeof body.access_token !== "string") throw new Error(`YOUTUBE_OAUTH_${String(body.error ?? response.status)}`);
+  if (!response.ok || typeof body.access_token !== "string") throw new Error(mapYoutubeTokenError(body, response.status));
   return {
     accessToken: body.access_token,
     refreshToken: typeof body.refresh_token === "string" ? body.refresh_token : undefined,
@@ -79,6 +98,7 @@ export async function exchangeYoutubeCode(input: {
 
 export async function refreshYoutubeToken(input: {
   clientId: string;
+  clientSecret?: string;
   refreshToken: string;
   previousScopes: string[];
   fetchImpl?: typeof fetch;
@@ -88,6 +108,7 @@ export async function refreshYoutubeToken(input: {
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({
       client_id: input.clientId,
+      ...(input.clientSecret ? { client_secret: input.clientSecret } : {}),
       refresh_token: input.refreshToken,
       grant_type: "refresh_token",
     }),

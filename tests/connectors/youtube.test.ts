@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { YoutubeApiClient, parseIsoDuration, youtubeQuotaPeriodKey } from "../../packages/connectors/youtube/src/client";
 import { parseYoutubeUrl } from "../../packages/connectors-core/src/url-policy";
-import { createYoutubeAuthorizationRequest, revokeYoutubeToken } from "../../packages/connectors/youtube/src/oauth";
+import { createYoutubeAuthorizationRequest, exchangeYoutubeCode, mapYoutubeTokenError, revokeYoutubeToken } from "../../packages/connectors/youtube/src/oauth";
 
 const credentials = {
   clientId: "desktop-client.apps.googleusercontent.com",
@@ -24,6 +24,35 @@ test("OAuth request uses PKCE S256, state and literal loopback callback", () => 
   assert.equal(url.searchParams.get("state"), request.state);
   assert.match(url.searchParams.get("scope") ?? "", /youtube\.force-ssl/);
   assert.equal(request.verifier.length >= 43, true);
+});
+
+test("token exchange maps actionable Google configuration errors without exposing provider text", () => {
+  assert.equal(
+    mapYoutubeTokenError({ error: "invalid_request", error_description: "The client_secret parameter is missing." }, 400),
+    "YOUTUBE_OAUTH_CLIENT_SECRET_REQUIRED",
+  );
+  assert.equal(
+    mapYoutubeTokenError({ error: "invalid_request", error_description: "redirect_uri is invalid" }, 400),
+    "YOUTUBE_OAUTH_REDIRECT_URI_INVALID",
+  );
+  assert.equal(mapYoutubeTokenError({ error: "invalid_grant", error_description: "private detail" }, 400), "YOUTUBE_OAUTH_invalid_grant");
+});
+
+test("token exchange sends a generated Desktop client secret only when configured", async () => {
+  let requestBody = "";
+  const result = await exchangeYoutubeCode({
+    clientId: credentials.clientId,
+    clientSecret: "configured-secret",
+    redirectUri: "http://127.0.0.1:3210/api/oauth/youtube/callback",
+    code: "authorization-code",
+    verifier: "a".repeat(64),
+    fetchImpl: async (_input, init) => {
+      requestBody = String(init?.body ?? "");
+      return new Response(JSON.stringify({ access_token: "access", expires_in: 3600, scope: "scope" }), { status: 200 });
+    },
+  });
+  assert.equal(new URLSearchParams(requestBody).get("client_secret"), "configured-secret");
+  assert.equal(result.accessToken, "access");
 });
 
 test("ISO duration enrichment is deterministic", () => {

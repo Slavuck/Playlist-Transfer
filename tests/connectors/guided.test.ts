@@ -32,7 +32,8 @@ test("lookalike provider hosts and malformed YouTube IDs fail closed", () => {
 });
 
 test("paid APIs never become mandatory connector strategies", () => {
-  assert.equal(selectConnectorStrategy({ provider: "spotify", apiConfigured: true, apiIsFreeForThisUser: false }), "guided");
+  assert.equal(selectConnectorStrategy({ provider: "spotify", apiConfigured: true, apiIsFreeForThisUser: false }), "api");
+  assert.equal(selectConnectorStrategy({ provider: "spotify", apiConfigured: false, apiIsFreeForThisUser: true }), "guided");
   assert.equal(selectConnectorStrategy({ provider: "soundcloud", apiConfigured: true, apiIsFreeForThisUser: false }), "guided");
   assert.equal(selectConnectorStrategy({ provider: "youtube", apiConfigured: false, apiIsFreeForThisUser: true }), "guided");
   assert.equal(selectConnectorStrategy({ provider: "youtube", apiConfigured: true, apiIsFreeForThisUser: true }), "api");
@@ -47,7 +48,7 @@ test("policy defaults physically keep DOM/UI automation and competitive playback
   assert.equal(policyGates.youtubeUiWrite, "blocked");
   assert.equal(policyGates.soundcloudCompetitivePlayback, "blocked");
   assert.equal(policyGates.spotifyCompetitivePlayback, "blocked");
-  assert.equal(policyGates.spotifyCrossProviderAutoMatching, "blocked");
+  assert.equal(policyGates.spotifyCrossProviderAutoMatching, "allowed");
   assert.equal(policyGates.youtubeCrossProviderAutoMatching, "blocked");
   assert.notEqual(policyGates.youtubeOwnedApi, "allowed");
 });

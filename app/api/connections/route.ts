@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiError, apiOk, requireUnlockedProfile } from "../_shared";
-import { guidedCapabilities, providerLimitations } from "../../../packages/connectors-core/src/policy";
+import { guidedCapabilities, providerLimitations, spotifyApiLimitations } from "../../../packages/connectors-core/src/policy";
 import { requireCsrf, requireLocalRead } from "../../../packages/security/src/loopback-session";
 import { getLocalDatabase } from "../../../packages/storage-local/src/database";
 import { getLocalVault } from "../../../packages/storage-local/src/vault";
@@ -30,7 +30,9 @@ function publicConnections() {
     void encryptedSecret;
     return {
       ...connection,
-      limitations: providerLimitations[connection.provider],
+      limitations: connection.provider === "spotify" && connection.strategy === "api"
+        ? spotifyApiLimitations
+        : providerLimitations[connection.provider],
     };
   });
 }
@@ -73,6 +75,13 @@ export async function POST(request: Request) {
         database.audit("YOUTUBE_AUTHORIZATION_REVOKED", connection.accountId, {
           method: input.providerRevocationConfirmed ? "USER_CONFIRMED_GOOGLE_SECURITY_SETTINGS" : "GOOGLE_REVOCATION_ENDPOINT",
           relatedApiDataDeleted: true,
+        });
+      } else if (input.provider === "spotify" && connection?.strategy === "api") {
+        database.deleteProviderData("spotify");
+        database.audit("SPOTAPI_SESSION_DISCONNECTED", connection.accountId, {
+          encryptedSessionCookiesDeleted: true,
+          relatedApiDataDeleted: true,
+          providerAuthorizationRevocationRequired: false,
         });
       } else {
         database.deleteConnection(input.provider);

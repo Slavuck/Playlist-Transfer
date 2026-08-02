@@ -15,6 +15,8 @@ flowchart LR
   Coordinator --> DB["Local SQLite"]
   DB --> Vault["Encrypted provider secrets"]
   Connectors --> Official["Policy-gated official API / oEmbed"]
+  Connectors --> SpotAPI["Local Python SpotAPI bridge"]
+  SpotAPI --> SpotifyPrivate["Spotify private/public endpoints"]
   Connectors --> Guided["User-operated official tabs"]
   Extension["MV3 activeTab + session storage"] --> Bridge["One-time loopback bridge"]
   Bridge --> Routes
@@ -32,6 +34,7 @@ flowchart LR
 | `packages/matching/` | Нормализация, hypotheses, deterministic scoring, queries и safe/risky decision |
 | `packages/connectors-core/` | Capability registry, policy gates, URL policy, oEmbed и guided action cards |
 | `packages/connectors/youtube/` | Optional BYO OAuth/API adapter, quota-aware search/write/read-back |
+| `packages/connectors/spotify/` | SpotAPI Python subprocess bridge, canonical DTO adapter, owned-playlist search/write/read-back |
 | `packages/storage-local/` | SQLite schema, durable journal, receipts, handoffs, quota ledger и vault |
 | `packages/security/` | Literal-loopback checks, session/CSRF/rate limits и one-time OAuth state |
 | `packages/test-fixtures/`, `tests/` | Synthetic/provider-neutral fixtures и automated verification |
@@ -42,11 +45,11 @@ UI получает сериализуемые DTO. Provider tokens и raw datab
 
 Каждый provider публикует capabilities, а coordinator выбирает strategy per operation:
 
-1. `api` — только бесплатный официальный путь, доступный этой локальной установке и явно открытый точным operator acknowledgement; YouTube API default — closed.
+1. `api` — provider connector: официальный YouTube API либо локальный SpotAPI для Spotify; оба явно открываются operator acknowledgement.
 2. `guided` — точный URL/ID, official page и явное действие пользователя.
 3. `dom-read`/`ui-write` — зарезервированы за отдельным положительным policy gate и отсутствуют в default release.
 
-В release profile cross-provider YouTube API search и derived scoring заблокированы policy gate до запроса к provider-у: пользователь вручную собирает 3–5 official URL, сравнивает raw metadata и выбирает exact `videoId`. API, если оператор открыл его точным acknowledgement-флагом, остаётся для owned-source reads, записи уже выбранного ID и read-after-write. Ошибка quota/reauth переводит работу в manual watch-URL fallback без потери journal/decisions; это не quota bypass. Для Spotify baseline сразу guided. Любое направление с SoundCloud принудительно получает `forceGuided=true`: приложение не выполняет API/DOM mutation или автоматическое создание destination, но user-operated официальный link-out путь проходит до отдельной reconciliation и статуса `USER_CONFIRMED_MANUAL`. `SC-BASE-LEGAL=unknown` остаётся видимым ограничением и запрещает выдавать этот путь за approved automation.
+В release profile cross-provider YouTube API search и derived scoring заблокированы policy gate до запроса к provider-у. Для Spotify SpotAPI разрешён deterministic catalog matching, owned-playlist read, create/append и read-after-write. Ошибка session/import до mutation переводит работу в guided fallback без потери journal; неоднозначная ошибка после mutation требует reconciliation. Любое направление с SoundCloud принудительно получает `forceGuided=true`.
 
 ## Transfer model
 
@@ -79,7 +82,7 @@ Matching pipeline:
 5. Считает deterministic title/artist/duration/version score.
 6. Auto-select только при выполнении mode threshold; иначе review или skip.
 
-Эти этапы выполняются только если более строгий provider policy gate разрешает derived matching. Для release-пар с Spotify/YouTube automatic cross-provider search/scoring не запускается: UI сохраняет ручной выбор точного ID без score и показывает provider metadata только при реальном official read-back. URL syntax alone хранит нейтральную метку target, `availability=UNKNOWN` и пустой набор provider metadata; source title не копируется в candidate. `SAFE`/`RISKY` и review остаются настройками одного приложения, но не могут ослабить policy gate.
+Эти этапы выполняются только если provider policy gate разрешает derived matching. Для Spotify SpotAPI search возвращает точные track IDs и private-provider read-back; для YouTube destination automatic cross-provider search/scoring не запускается. URL syntax alone хранит нейтральную метку target, `availability=UNKNOWN` и пустой набор provider metadata.
 
 Для Spotify/SoundCloud content запрещены LLM, embeddings, audio fingerprints и audio download/cache.
 
@@ -163,4 +166,4 @@ Strict comparison — внешний capability/policy gate: обе сторон
 one OS user -> one local Node process -> one local SQLite -> one browser profile
 ```
 
-Не поддерживаются как часть этой редакции: public binding, remote clients, shared OAuth client, browser store distribution, hosted database, serverless runtime и multi-user auth. Если такой профиль появится позже, он требует отдельной архитектуры безопасности/policy, но не может стать обязательным для local build.
+Local-профиль по-прежнему не открывает loopback API удалённым клиентам. Отдельный hosted-профиль работает на Vercel Functions и не использует local SQLite, vault или SpotAPI. Он применяет общий OAuth client только как идентификатор приложения, а пользовательские grants изолирует по браузерам в зашифрованных HttpOnly-cookie. Постоянной hosted database и server-side истории переносов нет; локальная сборка не зависит от hosted-профиля.

@@ -4,13 +4,13 @@
 
 Vercel получает только статические файлы из `website/`. Корневой `vercel.json` выбирает framework preset `Other`, пропускает установку зависимостей, выполняет только no-op build и задаёт `outputDirectory=website`; поэтому Git Integration не публикует Next.js API routes, SQLite или local vault. Оба Vercel entry point задают CSP без script/form execution, `frame-ancestors 'none'`, `Permissions-Policy`, `Referrer-Policy: no-referrer`, `nosniff` и `DENY` framing.
 
-Playlist-Transfer рассчитан на одного локального пользователя и literal loopback listener. Это не multi-user web service и не hosted security profile.
+Playlist-Transfer имеет два изолированных профиля. Local-профиль рассчитан на одного пользователя и literal loopback listener. Hosted-профиль — stateless multi-user web UI на Vercel с официальным per-user OAuth, без local SQLite/SpotAPI и без постоянной базы пользовательских токенов.
 
 ## Trust boundaries
 
 1. **Локальный browser UI** взаимодействует только с `http://127.0.0.1:3210`.
 2. **Local Node process** проверяет Host, Origin, session и CSRF и единственный имеет доступ к SQLite и открытому vault key.
-3. **Provider endpoints** получают только свои OAuth/API/oEmbed запросы; один provider не получает token другого. YouTube API и provider oEmbed полностью выключены по умолчанию и не получают запросов без соответствующего точного acknowledgement-флага.
+3. **Provider endpoints** получают только запросы своего коннектора; один provider не получает credential другого. YouTube API, Spotify SpotAPI и provider oEmbed закрыты точными acknowledgement-флагами.
 4. **MV3 extension** не является token vault/API proxy. Оно принимает typed one-time handoff и работает только после user gesture.
 5. **Официальные provider tabs** остаются под управлением пользователя. Default build не читает DOM и не выполняет auto-click.
 
@@ -20,6 +20,7 @@ Playlist-Transfer рассчитан на одного локального по
 |---|---|---|
 | Local profile verifier | SQLite `local_profile` | scrypt salt + AES-GCM verifier; исходный пароль не хранится |
 | Provider OAuth credentials | SQLite `service_connections.encrypted_secret` | AES-256-GCM; ключ только в памяти разблокированного local process |
+| Spotify `sp_dc`/`sp_key`/`sp_t` | Тот же encrypted connection record | Принимаются только через same-origin POST, передаются Python bridge через stdin, не попадают в argv/URL/logs |
 | Guided connection attestation | SQLite | Не содержит provider password/token |
 | Playlist snapshots и metadata | SQLite | Локально; default expiry marker 24 часа, explicit clear/delete доступен |
 | Transfer settings, decisions, journal, receipts | SQLite | Локально для resume/idempotency/audit |
@@ -61,10 +62,11 @@ Plain HTTP допустим только для literal loopback OAuth flow. Н�
 - YouTube hosts ограничены official watch/playlist/share variants; video ID проверяется как 11-символьный.
 - oEmbed endpoint выбирается приложением из allowlist, redirects запрещены, timeout 8 секунд, ответ ограничен 256 KB.
 - YouTube API requests идут только к Google OAuth/YouTube Data endpoints, используют timeout и schema checks.
+- Spotify requests выполняет локально установленный SpotAPI к Spotify private/public endpoints; Python bridge ограничивает stdout каноническими DTO и 4 MB.
 
-Обе сетевые возможности fail-closed: `PLAYLIST_TRANSFER_ENABLE_PROVIDER_OEMBED` и `PLAYLIST_TRANSFER_ENABLE_YOUTUBE_API` должны быть равны точной строке `I_ACCEPT_PROVIDER_POLICIES`. Любое другое или отсутствующее значение оставляет endpoint закрытым. Эта строка — attestation оператора, не результат compliance audit и не способ закрыть внешние provider gates.
+Сетевые возможности fail-closed: `PLAYLIST_TRANSFER_ENABLE_PROVIDER_OEMBED`, `PLAYLIST_TRANSFER_ENABLE_YOUTUBE_API` и `PLAYLIST_TRANSFER_ENABLE_SPOTAPI` должны быть равны точной строке `I_ACCEPT_PROVIDER_POLICIES`. Эта строка — attestation оператора, не результат compliance audit.
 
-Не реализуются cookies extraction, webRequest interception, password reading, internal client ID/token extraction, CAPTCHA/DRM/quota bypass, stream ripping или undocumented YouTube Music endpoints.
+Не реализуются автоматическое cookies extraction, webRequest interception, password reading, CAPTCHA/DRM/quota bypass, stream ripping или undocumented YouTube Music endpoints. Spotify cookies пользователь копирует сам из собственной открытой сессии.
 
 ## MV3 extension
 
@@ -97,7 +99,14 @@ Private SoundCloud secret tokens редактируются в UI и шифру�
 
 ### Spotify
 
-Guided baseline не получает Spotify token. Spotify API/Web Playback optional profiles не входят в zero-budget release. DOM reader/UI writer выключены; competitive playback имеет policy state `blocked`, поэтому review использует только явно помеченный sequential/link-out. Spotify oEmbed также выключен по умолчанию и требует общего точного oEmbed acknowledgement-флага.
+Прямой путь использует локальный SpotAPI 1.x и session cookies пользователя. Он не требует Premium, developer Client ID или allowlist, но обращается к неофициальным private endpoints и может сломаться после provider changes. Разрешены owned-playlist read, catalog search, create, append и read-after-write; playback, DOM reader и UI writer выключены.
+
+- Форма принимает только `sp_dc`, `sp_key`, `sp_t`; все другие cookie names отбрасываются.
+- Backend проверяет сессию до сохранения и шифрует credential в vault. Пароль Spotify не принимается.
+- Child process получает secret JSON через stdin. Аргументы процесса, stdout, audit и errors secrets не содержат.
+- Истёкшая/отозванная сессия переводит connection в `REAUTH_REQUIRED`; blind retry записи не выполняется.
+- Disconnect удаляет encrypted session и связанные локальные Spotify snapshots, но не меняет browser session и не удаляет provider playlist.
+- `PROVIDER_PRIVATE_API` и limitation `SPOTAPI_PRIVATE_API_UNOFFICIAL` отличают такое evidence от официального YouTube API.
 
 ### SoundCloud
 
@@ -109,7 +118,7 @@ Portable backup использует отдельную scrypt/AES-256-GCM envel
 
 Backup-файл содержит credentials внутри зашифрованного payload. Храните его как секрет, используйте уникальный пароль и удаляйте старые копии. Потерянный backup passphrase не восстанавливается.
 
-- **Disconnect provider** удаляет локальный encrypted connection record.
+- **Disconnect provider** удаляет локальный encrypted connection record; для Spotify это удаляет сохранённые session cookies без изменения browser cookie jar.
 - **Clear history** удаляет snapshots, transfers/items, decisions, receipts, journal и audit, но сохраняет профиль/connections.
 - **Delete account** удаляет профиль, connections, history, quota, публичный MV3 import draft, handoffs и блокирует vault. Операция не вызывает SQLite wipe, пока bridge не подтвердит `SESSION_CLEAR`; при недоступном bridge пользователь сначала очищает extension popup и затем выполняет отдельную manual-fallback аттестацию.
 - Для guided connections локальная SQLite-операция не изменяет provider-side data. Для YouTube API connection приложение сначала пытается отозвать token у Google; при сетевой ошибке требуется отдельный manual revoke + confirmation, иначе локальное удаление fail-closed останавливается.
